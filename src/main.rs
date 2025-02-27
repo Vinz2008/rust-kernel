@@ -6,6 +6,8 @@
 #![test_runner(crate::tests::test_main)]
 #![reexport_test_harness_main = "test_main"]
 
+#![feature(abi_x86_interrupt)]
+
 
 mod tests;
 
@@ -18,6 +20,10 @@ mod qemu;
 
 mod serial;
 
+mod interrupts;
+
+mod gdt;
+
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
@@ -25,6 +31,9 @@ pub extern "C" fn _start() -> ! {
 
     #[cfg(test)]
     test_main();
+
+    gdt::init();
+    interrupts::init_idt();
 
     loop {}
 }
