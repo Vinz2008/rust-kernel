@@ -8,9 +8,12 @@
 
 #![feature(abi_x86_interrupt)]
 
+use crate::utils::hlt_loop;
+
 
 mod tests;
 
+mod utils;
 
 mod panic;
 
@@ -21,13 +24,16 @@ mod qemu;
 mod serial;
 
 mod interrupts;
+mod pic;
 
 mod gdt;
 
+mod cli;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     println!("Hello World{}", "!");
+
 
     #[cfg(test)]
     test_main();
@@ -35,5 +41,11 @@ pub extern "C" fn _start() -> ! {
     gdt::init();
     interrupts::init_idt();
 
-    loop {}
+    unsafe { pic::PICS.lock().initialize() };
+
+    x86_64::instructions::interrupts::enable();
+
+    serial_println!("test");
+
+    hlt_loop();
 }
