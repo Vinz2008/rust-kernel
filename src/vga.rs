@@ -3,6 +3,8 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 use x86_64::instructions::interrupts;
 
+use crate::cli::CLI_CONTEXT;
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -28,59 +30,57 @@ pub enum Color {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
-struct ColorCode(u8);
+pub struct ColorCode(u8);
 
 impl ColorCode {
-    fn new(foreground: Color, background: Color) -> ColorCode {
+    pub const fn new(foreground: Color, background: Color) -> ColorCode {
         ColorCode((background as u8) << 4 | (foreground as u8))
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
-struct ScreenChar {
-    ascii_character: u8,
-    color_code: ColorCode,
+pub struct ScreenChar {
+    pub ascii_character: u8,
+    pub color_code: ColorCode,
 }
 
 const BUFFER_HEIGHT: usize = 25;
 pub const BUFFER_WIDTH: usize = 80;
 
+const EMPTY_CHAR : ScreenChar = ScreenChar { 
+    ascii_character: b' ', 
+    color_code: ColorCode::new(Color::Black, Color::Black),
+};
+
 #[repr(transparent)]
-struct Buffer {
+pub struct Buffer {
     chars: [[ScreenChar; BUFFER_WIDTH]; BUFFER_HEIGHT],
 }
 
 impl Buffer {
-    fn read_char(&self, row : usize, col : usize) -> ScreenChar {
+    pub fn read_char(&self, row : usize, col : usize) -> ScreenChar {
         unsafe {
             ptr::read_volatile(&self.chars[row][col] as *const _)
         }
     }
-    fn write_char(&mut self, row : usize, col : usize, c : ScreenChar){
+    pub fn write_char(&mut self, row : usize, col : usize, c : ScreenChar){
         unsafe {
             ptr::write_volatile(&mut self.chars[row][col] as *mut _, c);
         }
     }
-    fn clear(&mut self){
+    pub fn clear(&mut self){
         for line in &mut self.chars {
             for col in line {
                 unsafe {
-                    ptr::write_volatile(col as *mut _, ScreenChar {
-                        ascii_character: b' ',
-                        color_code: ColorCode::new(Color::Black, Color::Black),
-                    });
+                    ptr::write_volatile(col as *mut _, EMPTY_CHAR);
                 }
             }
-            
         }
     }
     fn clear_row(&mut self, row: usize) {
         for col in 0..BUFFER_WIDTH {
-            self.write_char(row, col, ScreenChar { 
-                ascii_character: b' ', 
-                color_code: ColorCode::new(Color::Black, Color::Black),
-            });
+            self.write_char(row, col, EMPTY_CHAR);
         }
     }
     fn shift_lines(&mut self){
@@ -97,7 +97,7 @@ pub struct Writer {
     column_pos: usize,
     row_pos : usize,
     color_code: ColorCode,
-    buffer: &'static mut Buffer,
+    pub buffer: &'static mut Buffer,
 }
 
 
@@ -143,9 +143,32 @@ impl Writer {
             self.row_pos += 1;
         }
         self.column_pos = 0;
-        
     }    
 
+    pub fn get_row(&self) -> usize {
+        self.row_pos
+    }
+
+    pub fn get_col(&self) -> usize {
+        self.column_pos
+    }
+
+    pub fn get_color(&self) -> ColorCode {
+        self.color_code
+    }
+
+    pub fn remove_last_char(&mut self){
+        if self.column_pos > 0 {
+            self.column_pos -= 1;
+            self.buffer.write_char(self.row_pos, self.column_pos, EMPTY_CHAR);
+        }
+    }
+
+    pub fn reset(&mut self){
+        self.buffer.clear();
+        self.column_pos = 0;
+        self.row_pos = 0;
+    }
 }
 
 impl fmt::Write for Writer {

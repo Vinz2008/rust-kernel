@@ -1,8 +1,9 @@
 use pc_keyboard::{DecodedKey, HandleControl, KeyCode, PS2Keyboard, ScancodeSet1, layouts};
 use spin::Mutex;
+use uart_16550::spec::registers::LCR;
 use x86_64::{instructions::port::Port, structures::idt::{InterruptDescriptorTable, InterruptStackFrame}};
 use lazy_static::lazy_static;
-use crate::{cli::{CURSOR, CursorMove}, gdt, pic::{PIC_1_OFFSET, PICS}, print, println};
+use crate::{cli::{CLI_CONTEXT, CursorMove}, gdt, pic::{PIC_1_OFFSET, PICS}, print, println, vga::WRITER};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -70,21 +71,31 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
             match key {
                 DecodedKey::Unicode(c) => {
                     match c {
+                        '\n' => {
+                            CLI_CONTEXT.lock().launch_cmd_cli();
+                        }
                         DELETE | BACKSPACE => {
-                            todo!()
+                            WRITER.lock().remove_last_char();
+                            CLI_CONTEXT.lock().cursor.move_cursor(CursorMove::Left);
                         },
-                        _ => print!("{}", c),
+                        _ => {
+                            print!("{}", c);
+                            let mut cli_context_lock = CLI_CONTEXT.lock();
+                            cli_context_lock.add_char(c);
+                            cli_context_lock.cursor.move_cursor(CursorMove::Right);
+                        },
                     }
                 },
                 DecodedKey::RawKey(key) => {
                     match key {
                         // TODO  shift, ctrl, etc
                         KeyCode::ArrowLeft => {
-                            CURSOR.lock().move_cursor(CursorMove::Left);
+                            CLI_CONTEXT.lock().cursor.move_cursor(CursorMove::Left);
                         }
                         KeyCode::ArrowRight => {
-                            CURSOR.lock().move_cursor(CursorMove::Right);
-                        }
+                            CLI_CONTEXT.lock().cursor.move_cursor(CursorMove::Right);
+                        },
+                        KeyCode::LShift => {}, // Do nothing, because pc-keyboard already does the shift for the chars
                         _ => print!("{:?}", key),
                     }
                 },

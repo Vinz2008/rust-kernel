@@ -32,7 +32,7 @@ mod cli;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    println!("Hello World{}", "!");
+    //println!("Hello World{}", "!");
 
 
     #[cfg(test)]
@@ -44,6 +44,8 @@ pub extern "C" fn _start() -> ! {
     unsafe { pic::PICS.lock().initialize() };
 
     x86_64::instructions::interrupts::enable();
+
+    cli::init_cli();
 
     serial_println!("test");
 
