@@ -19,10 +19,24 @@ impl CliContext {
 
     pub fn launch_cmd_cli(&mut self){
         println!();
-        match self.cli_line.as_str() {
+        let mut argv = self.cli_line.split_ascii_whitespace();
+        match argv.next().unwrap() {
             "clear" => {
                 WRITER.lock().reset();
             },
+            "echo" => {
+                let mut writer_lock = WRITER.lock();
+                let mut is_first = true;
+                for arg in argv {
+                    if is_first {
+                        is_first = false;
+                    } else {
+                        writer_lock.write_byte(b' ');
+                    }
+                    writer_lock.write_string(arg);
+                }
+                writer_lock.write_byte(b'\n');
+            }
             cmd => println!("Unknown command {} !!", cmd),
         }
         print!(">");
