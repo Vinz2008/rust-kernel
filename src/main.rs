@@ -8,6 +8,9 @@
 
 #![feature(abi_x86_interrupt)]
 
+use bootloader::{BootInfo, entry_point};
+use x86_64::{VirtAddr, structures::paging::Translate};
+
 use crate::utils::hlt_loop;
 
 
@@ -28,12 +31,15 @@ mod pic;
 
 mod gdt;
 
+mod paging;
+
 mod cli;
 
-#[no_mangle]
-pub extern "C" fn _start() -> ! {
-    //println!("Hello World{}", "!");
+entry_point!(kernel_main);
 
+
+fn kernel_main(boot_info: &'static BootInfo) -> ! {
+    //println!("Hello World{}", "!");
 
     #[cfg(test)]
     test_main();
@@ -44,6 +50,29 @@ pub extern "C" fn _start() -> ! {
     unsafe { pic::PICS.lock().initialize() };
 
     x86_64::instructions::interrupts::enable();
+
+    let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
+
+    let mapper = unsafe { paging::init(phys_mem_offset) };
+    
+    let addresses = [
+        // the identity-mapped vga buffer page
+        0xb8000,
+        // some code page
+        0x201008,
+        // some stack page
+        0x0100_0020_1a10,
+        // virtual address mapped to physical address 0
+        boot_info.physical_memory_offset,
+    ];
+
+    for &address in &addresses {
+        let virt = VirtAddr::new(address);
+        // new: use the `mapper.translate_addr` method
+        let phys = mapper.translate_addr(virt);
+        println!("{:?} -> {:?}", virt, phys);
+    }
+
 
     cli::init_cli();
 

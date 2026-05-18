@@ -1,9 +1,8 @@
 use pc_keyboard::{DecodedKey, HandleControl, KeyCode, PS2Keyboard, ScancodeSet1, layouts};
 use spin::Mutex;
-use uart_16550::spec::registers::LCR;
-use x86_64::{instructions::port::Port, structures::idt::{InterruptDescriptorTable, InterruptStackFrame}};
+use x86_64::{instructions::port::Port, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
-use crate::{cli::{CLI_CONTEXT, CursorMove}, gdt, pic::{PIC_1_OFFSET, PICS}, print, println, vga::WRITER};
+use crate::{cli::{CLI_CONTEXT, CursorMove}, gdt, pic::{PIC_1_OFFSET, PICS}, print, println, utils::hlt_loop, vga::WRITER};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -19,6 +18,7 @@ lazy_static! {
         unsafe {
             idt.double_fault.set_handler_fn(double_fault_handler).set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
         }
+        idt.page_fault.set_handler_fn(page_fault_handler);
         idt[InterruptIndex::Timer as usize].set_handler_fn(timer_interrupt_handler);
         idt[InterruptIndex::Keyboard as usize].set_handler_fn(keyboard_interrupt_handler);
         idt
@@ -37,6 +37,14 @@ extern "x86-interrupt" fn breakpoint_handler(stack_frame: InterruptStackFrame)
 extern "x86-interrupt" fn double_fault_handler(stack_frame: InterruptStackFrame, _error_code: u64) -> !
 {
     panic!("EXCEPTION: DOUBLE FAULT\n{:#?}", stack_frame);
+}
+
+extern "x86-interrupt" fn page_fault_handler(stack_frame: InterruptStackFrame, error_code: PageFaultErrorCode){
+    println!("EXCEPTION: PAGE FAULT");
+    println!("Accessed Address: {:?}", Cr2::read());
+    println!("Error Code: {:?}", error_code);
+    println!("{:#?}", stack_frame);
+    hlt_loop();
 }
 
 
