@@ -71,16 +71,14 @@ impl Buffer {
     }
     pub fn clear(&mut self){
         for line in &mut self.chars {
-            for col in line {
-                unsafe {
-                    ptr::write_volatile(col as *mut _, EMPTY_CHAR);
-                }
+            unsafe {
+                ptr::write_volatile(line as *mut _, [EMPTY_CHAR; BUFFER_WIDTH]);
             }
         }
     }
     fn clear_row(&mut self, row: usize) {
-        for col in 0..BUFFER_WIDTH {
-            self.write_char(row, col, EMPTY_CHAR);
+        unsafe {
+            ptr::write_volatile(&mut self.chars[row] as *mut _, [EMPTY_CHAR; BUFFER_WIDTH]);
         }
     }
     fn shift_lines(&mut self){
