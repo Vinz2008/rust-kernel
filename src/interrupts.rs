@@ -2,7 +2,7 @@ use pc_keyboard::{DecodedKey, HandleControl, KeyCode, PS2Keyboard, ScancodeSet1,
 use spin::Mutex;
 use x86_64::{instructions::port::Port, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
-use crate::{cli::{CLI_CONTEXT, CursorMove}, gdt, pic::{PIC_1_OFFSET, PICS}, print, println, utils::hlt_loop, vga::WRITER};
+use crate::{cli::{CLI_CONTEXT, CursorMove}, gdt, pic::{PIC_1_OFFSET, PICS}, print, println, serial_println, utils::hlt_loop, vga::WRITER};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -104,7 +104,7 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
                             CLI_CONTEXT.lock().cursor.move_cursor(CursorMove::Right);
                         },
                         KeyCode::LShift => {}, // Do nothing, because pc-keyboard already does the shift for the chars
-                        _ => print!("{:?}", key),
+                        _ => serial_println!("{:?}", key),
                     }
                 },
             }

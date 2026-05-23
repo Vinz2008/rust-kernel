@@ -1,4 +1,5 @@
-use x86_64::{PhysAddr, VirtAddr, registers::control::Cr3, structures::paging::{OffsetPageTable, PageTable, page_table::FrameError}};
+use bootloader::{BootInfo, bootinfo::{MemoryMap, MemoryRegionType}};
+use x86_64::{PhysAddr, VirtAddr, registers::control::Cr3, structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB, page_table::FrameError}};
 
 
 unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut PageTable {
@@ -39,5 +40,38 @@ pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static>
     unsafe {
         let level_4_table = active_level_4_table(physical_memory_offset);
         OffsetPageTable::new(level_4_table, physical_memory_offset)
+    }
+}
+
+// TODO huge pages (2 MiB)
+
+pub struct BootInfoFrameAllocator {
+    memory_map: &'static MemoryMap,
+    next: usize,
+}
+
+impl BootInfoFrameAllocator {
+    pub unsafe fn init(memory_map : &'static MemoryMap) -> BootInfoFrameAllocator {
+        BootInfoFrameAllocator {
+            memory_map,
+            next: 0
+        }
+    }
+
+    fn usable_frames(&self) -> impl Iterator<Item = PhysFrame> {
+        let regions = self.memory_map.iter();
+        let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
+        let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
+        const PAGE_SIZE : usize = 4096; // TODO : change this when using huge pages (pass through args ?)
+        let frame_addresses = addr_ranges.flat_map(|r| r.step_by(PAGE_SIZE));
+        frame_addresses.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
+    }
+}
+
+unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
+    fn allocate_frame(&mut self) -> Option<PhysFrame> {
+        let frame = self.usable_frames().nth(self.next); // TODO : cache the usable frames iter (according to tutorial phil-opp.cpp not possible because of lack of named existential types), or I could rework the api to not return an iter ?
+        self.next += 1;
+        frame
     }
 }

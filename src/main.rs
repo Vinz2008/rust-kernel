@@ -8,8 +8,11 @@
 
 #![feature(abi_x86_interrupt)]
 
+extern crate alloc;
+
+use alloc::{boxed::Box, rc::Rc, vec::Vec, vec};
 use bootloader::{BootInfo, entry_point};
-use x86_64::{VirtAddr, structures::paging::Translate};
+use x86_64::{VirtAddr, structures::paging::{Page, Translate}};
 
 use crate::utils::hlt_loop;
 
@@ -32,6 +35,7 @@ mod pic;
 mod gdt;
 
 mod paging;
+mod allocator;
 
 mod cli;
 
@@ -53,26 +57,25 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
 
-    let mapper = unsafe { paging::init(phys_mem_offset) };
-    
-    let addresses = [
-        // the identity-mapped vga buffer page
-        0xb8000,
-        // some code page
-        0x201008,
-        // some stack page
-        0x0100_0020_1a10,
-        // virtual address mapped to physical address 0
-        boot_info.physical_memory_offset,
-    ];
+    let mut mapper = unsafe { paging::init(phys_mem_offset) };
+    let mut frame_allocator = unsafe { paging::BootInfoFrameAllocator::init(&boot_info.memory_map) };
 
-    for &address in &addresses {
-        let virt = VirtAddr::new(address);
-        // new: use the `mapper.translate_addr` method
-        let phys = mapper.translate_addr(virt);
-        println!("{:?} -> {:?}", virt, phys);
+    allocator::init_heap(&mut mapper, &mut frame_allocator).expect("heap initialization failed");
+
+    let heap_value = Box::new(41);
+    println!("heap_value at {:p}", heap_value);
+
+    let mut vec = Vec::new();
+    for i in 0..500 {
+        vec.push(i);
     }
+    println!("vec at {:p}", vec.as_slice());
 
+    let reference_counted = Rc::new(vec![1, 2, 3]);
+    let cloned_reference = reference_counted.clone();
+    println!("current reference count is {}", Rc::strong_count(&cloned_reference));
+    core::mem::drop(reference_counted);
+    println!("reference count is {} now", Rc::strong_count(&cloned_reference));
 
     cli::init_cli();
 
