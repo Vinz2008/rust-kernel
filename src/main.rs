@@ -12,7 +12,7 @@ extern crate alloc;
 
 use alloc::{boxed::Box, rc::Rc, vec::Vec, vec};
 use bootloader::{BootInfo, entry_point};
-use x86_64::{VirtAddr, structures::paging::{Page, Translate}};
+use x86_64::VirtAddr;
 
 use crate::utils::hlt_loop;
 

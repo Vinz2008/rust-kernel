@@ -1,5 +1,5 @@
-use bootloader::{BootInfo, bootinfo::{MemoryMap, MemoryRegionType}};
-use x86_64::{PhysAddr, VirtAddr, registers::control::Cr3, structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB, page_table::FrameError}};
+use bootloader::{bootinfo::{MemoryMap, MemoryRegionType}};
+use x86_64::{PhysAddr, VirtAddr, registers::control::Cr3, structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB, page_table::FrameError}};
 
 
 unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut PageTable {

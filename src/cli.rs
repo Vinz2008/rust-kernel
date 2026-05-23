@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 use x86_64::instructions::port::Port;
 
-use crate::{print, println, serial_println, vga::{BUFFER_WIDTH, ColorCode, WRITER}};
+use crate::{print, println, vga::{BUFFER_WIDTH, WRITER}};
 
 pub struct CliContext {
     cli_line : ArrayString<100>,
@@ -62,10 +62,10 @@ pub enum CursorMove {
 impl Cursor {
     fn update_cursor(&self){
         let pos = self.row_pos * BUFFER_WIDTH + self.col_pos;
-        let mut port1 = Port::new(0x3D4);
-        let mut port2 = Port::new(0x3D5);
+        let mut port1 = Port::<u8>::new(0x3D4);
+        let mut port2 = Port::<u8>::new(0x3D5);
         unsafe {
-            port1.write(0x0F as u8);
+            port1.write(0x0F);
             port2.write((pos & 0xFF) as u8);
             port1.write(0x0E);
             port2.write(((pos >> 8) & 0xFF) as u8);
@@ -88,7 +88,7 @@ impl Cursor {
     pub fn move_cursor(&mut self, cursor_move : CursorMove){
         let (new_row, new_col) = match cursor_move {
             CursorMove::Right => (self.row_pos, min(self.col_pos+1, BUFFER_WIDTH)),
-            CursorMove::Left => (self.row_pos, self.col_pos.checked_sub(1).unwrap_or(0))
+            CursorMove::Left => (self.row_pos, self.col_pos.saturating_sub(1))
         };
         self.move_cursor_at(new_row, new_col);
 
