@@ -19,8 +19,8 @@ lazy_static! {
             idt.double_fault.set_handler_fn(double_fault_handler).set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
         }
         idt.page_fault.set_handler_fn(page_fault_handler);
-        idt[InterruptIndex::Timer as usize].set_handler_fn(timer_interrupt_handler);
-        idt[InterruptIndex::Keyboard as usize].set_handler_fn(keyboard_interrupt_handler);
+        idt[InterruptIndex::Timer as u8].set_handler_fn(timer_interrupt_handler);
+        idt[InterruptIndex::Keyboard as u8].set_handler_fn(keyboard_interrupt_handler);
         idt
     };
 }
