@@ -37,9 +37,13 @@ mod gdt;
 mod paging;
 mod allocator;
 
+mod initrd;
+
 mod cli;
 
 entry_point!(kernel_main);
+
+const INITRD_BYTES : &[u8] = include_bytes!("../initrd.tar");
 
 
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
