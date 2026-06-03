@@ -10,7 +10,7 @@
 
 extern crate alloc;
 
-use alloc::{boxed::Box, rc::Rc, vec::Vec, vec};
+//use alloc::{boxed::Box, rc::Rc, vec::Vec, vec};
 use bootloader::{BootInfo, entry_point};
 use x86_64::VirtAddr;
 
@@ -28,6 +28,8 @@ mod vga;
 mod qemu;
 
 mod serial;
+
+mod backtrace;
 
 mod interrupts;
 mod pic;
@@ -66,7 +68,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     allocator::init_heap(&mut mapper, &mut frame_allocator).expect("heap initialization failed");
 
-    let heap_value = Box::new(41);
+    /*let heap_value = Box::new(41);
     println!("heap_value at {:p}", heap_value);
 
     let mut vec = Vec::new();
@@ -79,7 +81,13 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     let cloned_reference = reference_counted.clone();
     println!("current reference count is {}", Rc::strong_count(&cloned_reference));
     core::mem::drop(reference_counted);
-    println!("reference count is {} now", Rc::strong_count(&cloned_reference));
+    println!("reference count is {} now", Rc::strong_count(&cloned_reference));*/
+
+    let tar_initrd = initrd::TarInitrd::new(INITRD_BYTES).expect("invalid tar");
+    for (idx, &file) in tar_initrd.headers.iter().enumerate() {
+        serial_println!("file {} {} {}", idx, file.get_filename().unwrap(), file.size().unwrap());
+    }
+
 
     cli::init_cli();
 

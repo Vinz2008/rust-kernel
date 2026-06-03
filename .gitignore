@@ -1,2 +1,4 @@
 /target
 initrd.tar
+initrd/init
+/init/target

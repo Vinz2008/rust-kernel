@@ -1,0 +1,115 @@
+use alloc::vec::Vec;
+
+#[repr(C)]
+pub struct TarHeader {
+    filename : [u8; 100],
+    mode : [u8; 8],
+    uid : [u8; 8],
+    gid : [u8; 8],
+    size : [u8; 12],
+    mtime : [u8; 12],
+    chksum : [u8; 8],
+    typeflag : [u8; 1],
+    linkname : [u8; 100],
+    // ustar part
+    magic : [u8; 6], // TODO : check magic
+    version : [u8; 2],
+    uname : [u8; 32],
+    gname : [u8; 32],
+    dev_major: [u8; 8],
+    dev_minor: [u8; 8],
+    prefix: [u8; 155],
+    pad: [u8; 12],
+}
+
+#[derive(Debug)]
+pub enum TarError {
+    InvalidUtf8,
+    InvalidOctal,
+    NoEnd,
+}
+
+fn trim_right_nul(buf : &[u8]) -> &[u8] {
+    let end_pos = buf.iter().position(|e| *e == 0).unwrap_or(buf.len());
+    &buf[..end_pos]
+}
+
+fn parse_octal(buf : &[u8]) -> Result<u64, TarError> {
+    let mut res : u64 = 0;
+    for &b in buf {
+        match b {
+            0 | b' ' => break,
+            b'0'..=b'7' => {
+                res = res * 8 + (b - b'0') as u64;
+            }
+            _ => return Err(TarError::InvalidOctal),
+        }
+    }
+    Ok(res)
+}
+
+impl TarHeader {
+    // filename is max 256 chars
+    pub fn get_filename(&self) -> Result<&str, TarError> { 
+        str::from_utf8(trim_right_nul(&self.filename)).map_err(|_| TarError::InvalidUtf8)
+    }
+
+    pub fn size(&self) -> Result<usize, TarError> {
+        parse_octal(&self.size).map(|s| s as usize)
+    }
+
+    fn get_mode(&self) -> Result<u32, TarError> {
+        parse_octal(&self.mode).map(|m| m as u32)
+    }
+}
+
+/*struct TarHeader {
+    filename : ArrayString<256>,
+    mode : u32,
+    uid : u32,
+    gid : u32,
+    size : u64,
+    mtime : u64,
+    chksum : u32,
+}*/
+
+pub struct TarInitrd<'a> {
+    content : &'a [u8],
+    pub headers : Vec<&'a TarHeader>, // for now, find all headers, in the future lazy iterate ? (TODO ?)
+}
+
+fn get_headers<'a>(content : &'a [u8]) -> Result<Vec<&'a TarHeader>, TarError> {
+    // TODO : maybe reserve the size of the vec to not waste memory ? (would need to do 2 times traversal, is it a good idea ?)
+    let mut headers = Vec::new();
+    let mut header_ptr = content.as_ptr();
+    loop {
+        if header_ptr as usize + 512 >= content.as_ptr_range().end as usize {
+            return Err(TarError::NoEnd);
+        }
+        let header = unsafe { &*(header_ptr as *const TarHeader) };
+        if header.filename[0] == b'\0' {
+            break;
+        }
+        let size = parse_octal(&header.size)? as usize;
+        headers.push(header);
+        unsafe {
+            header_ptr = header_ptr.add(((size/512) + 1) * 512);
+        }
+        if size % 512 != 0 {
+            unsafe {
+                header_ptr = header_ptr.add(512);
+            }
+        }
+    }
+    Ok(headers)
+}
+
+impl<'a> TarInitrd<'a> {
+    pub fn new(content : &'a [u8]) -> Result<TarInitrd<'a>, TarError> {
+        let headers = get_headers(content)?;
+        Ok(TarInitrd { 
+            content, 
+            headers, 
+        })
+    }
+}
