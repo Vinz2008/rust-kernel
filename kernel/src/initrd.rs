@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{slice, vec::Vec};
 
 #[repr(C)]
 pub struct TarHeader {
@@ -50,6 +50,7 @@ fn parse_octal(buf : &[u8]) -> Result<u64, TarError> {
 
 impl TarHeader {
     // filename is max 256 chars
+    // TODO : use also the prefix ?
     pub fn get_filename(&self) -> Result<&str, TarError> { 
         str::from_utf8(trim_right_nul(&self.filename)).map_err(|_| TarError::InvalidUtf8)
     }
@@ -60,6 +61,13 @@ impl TarHeader {
 
     fn get_mode(&self) -> Result<u32, TarError> {
         parse_octal(&self.mode).map(|m| m as u32)
+    }
+
+    pub fn content(&self) -> Result<&[u8], TarError> {
+        let size = self.size()?;
+        let file_content_ptr = unsafe { (self as *const TarHeader as *const u8).add(512) };
+        let slice = unsafe { slice::from_raw_parts(file_content_ptr, size) };
+        Ok(slice)
     }
 }
 
