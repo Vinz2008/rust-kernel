@@ -33,6 +33,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "413d67b29ef1021b4d60f4aa1e925ca031751e213832b4b1d588fae623c05c60"
 
 [[package]]
+name = "elf"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55dd888a213fc57e957abf2aa305ee3e8a28dbe05687a251f33b637cd46b0070"
+
+[[package]]
 name = "init"
 version = "0.1.0"
 
@@ -84,6 +90,7 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "bootloader",
+ "elf",
  "lazy_static",
  "linked_list_allocator",
  "pc-keyboard",

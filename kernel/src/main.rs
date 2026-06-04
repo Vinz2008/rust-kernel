@@ -12,6 +12,7 @@ extern crate alloc;
 
 //use alloc::{boxed::Box, rc::Rc, vec::Vec, vec};
 use bootloader::{BootInfo, entry_point};
+use elf::{ElfBytes, endian::AnyEndian};
 use x86_64::VirtAddr;
 
 use crate::utils::hlt_loop;
@@ -83,11 +84,18 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     core::mem::drop(reference_counted);
     println!("reference count is {} now", Rc::strong_count(&cloned_reference));*/
 
+    // TODO : move this initrd.rs (??)
     let tar_initrd = initrd::TarInitrd::new(INITRD_BYTES).expect("invalid tar");
     for (idx, &file) in tar_initrd.headers.iter().enumerate() {
         serial_println!("file {} {} {}", idx, file.get_filename().unwrap(), file.size().unwrap());
     }
 
+    let init_file_header = *tar_initrd.headers.iter().find(|e| e.get_filename().unwrap() == "./init").unwrap();
+    let init_content = init_file_header.content().unwrap();
+    let file = ElfBytes::<AnyEndian>::minimal_parse(init_content).expect("Error when parsing init elf");
+
+    let text_section_header = file.section_header_by_name(".text").unwrap().unwrap();
+    serial_println!("text section content : {:?}", file.section_data(&text_section_header).unwrap().0);
 
     cli::init_cli();
 
