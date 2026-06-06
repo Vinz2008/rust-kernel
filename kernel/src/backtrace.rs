@@ -16,13 +16,17 @@ pub struct BacktraceIter {
     current_rbp : *const StackFrame,
 }
 
+fn is_rbp_invalid(current_rbp : *const StackFrame) -> bool {
+    let address = current_rbp as usize;
+    current_rbp.is_null() || address % core::mem::align_of::<StackFrame>() != 0
+}
 
 // TODO : embed a symbol table in the exe, so it can print backtrace symbol names (enable it with a feature flag to not have too much bloat by default ?)
 impl Iterator for BacktraceIter {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current_rbp.is_null(){
+        if is_rbp_invalid(self.current_rbp) {
             None
         } else {
             let current_frame = unsafe { *self.current_rbp };

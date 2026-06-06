@@ -12,10 +12,9 @@ extern crate alloc;
 
 //use alloc::{boxed::Box, rc::Rc, vec::Vec, vec};
 use bootloader::{BootInfo, entry_point};
-use elf::{ElfBytes, endian::AnyEndian};
 use x86_64::VirtAddr;
 
-use crate::utils::hlt_loop;
+use crate::{initrd::load_initrd, utils::hlt_loop};
 
 
 mod tests;
@@ -46,8 +45,6 @@ mod cli;
 
 entry_point!(kernel_main);
 
-const INITRD_BYTES : &[u8] = include_bytes!("../initrd.tar");
-
 
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
     //println!("Hello World{}", "!");
@@ -64,10 +61,10 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
 
-    let mut mapper = unsafe { paging::init(phys_mem_offset) };
-    let mut frame_allocator = unsafe { paging::BootInfoFrameAllocator::init(&boot_info.memory_map) };
+    let mapper = unsafe { paging::init(phys_mem_offset) };
+    let frame_allocator = unsafe { paging::BootInfoFrameAllocator::init(&boot_info.memory_map) };
 
-    allocator::init_heap(&mut mapper, &mut frame_allocator).expect("heap initialization failed");
+    allocator::init_heap(mapper, frame_allocator).expect("heap initialization failed");
 
     /*let heap_value = Box::new(41);
     println!("heap_value at {:p}", heap_value);
@@ -84,19 +81,11 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     core::mem::drop(reference_counted);
     println!("reference count is {} now", Rc::strong_count(&cloned_reference));*/
 
-    // TODO : move this initrd.rs (??)
-    let tar_initrd = initrd::TarInitrd::new(INITRD_BYTES).expect("invalid tar");
-    for (idx, &file) in tar_initrd.headers.iter().enumerate() {
-        serial_println!("file {} {} {}", idx, file.get_filename().unwrap(), file.size().unwrap());
-    }
+    
+    load_initrd();
+    
 
-    let init_file_header = *tar_initrd.headers.iter().find(|e| e.get_filename().unwrap() == "./init").unwrap();
-    let init_content = init_file_header.content().unwrap();
-    let file = ElfBytes::<AnyEndian>::minimal_parse(init_content).expect("Error when parsing init elf");
-
-    let text_section_header = file.section_header_by_name(".text").unwrap().unwrap();
-    serial_println!("text section content : {:?}", file.section_data(&text_section_header).unwrap().0);
-
+    
     cli::init_cli();
 
     serial_println!("test");

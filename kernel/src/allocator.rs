@@ -1,11 +1,22 @@
 use linked_list_allocator::LockedHeap;
-use x86_64::{VirtAddr, structures::paging::{FrameAllocator, Mapper, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
+use spin::{Mutex, Once};
+use x86_64::{VirtAddr, structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
+
+use crate::paging::BootInfoFrameAllocator;
 
 pub const HEAP_START: usize = 0x_4444_4444_0000;
 pub const HEAP_SIZE: usize = 10 * 1024 * 1024; // 10MB, if needed, increase it
 
 #[global_allocator]
-static ALLOCATOR: LockedHeap = LockedHeap::empty();
+static ALLOCATOR: LockedHeap = LockedHeap::empty(); 
+
+struct MemoryManager {
+    mapper: OffsetPageTable<'static>,
+    frame_allocator : BootInfoFrameAllocator,
+}
+
+static MEMORY_MANAGER: Once<Mutex<MemoryManager>> = Once::new();
+
 
 fn init_heap_mapping(mapper: &mut impl Mapper<Size4KiB>, frame_allocator : &mut impl FrameAllocator<Size4KiB>) -> Result<(), MapToError<Size4KiB>>{
     let heap_start = VirtAddr::new(HEAP_START as u64);
@@ -24,12 +35,32 @@ fn init_heap_mapping(mapper: &mut impl Mapper<Size4KiB>, frame_allocator : &mut 
     Ok(())
 }
 
-pub fn init_heap(mapper: &mut impl Mapper<Size4KiB>, frame_allocator : &mut impl FrameAllocator<Size4KiB>) -> Result<(), MapToError<Size4KiB>> {
-    init_heap_mapping(mapper, frame_allocator)?;
+pub fn init_heap(mut mapper: OffsetPageTable<'static>, mut frame_allocator : BootInfoFrameAllocator) -> Result<(), MapToError<Size4KiB>> {
+    init_heap_mapping(&mut mapper, &mut frame_allocator)?;
+    MEMORY_MANAGER.call_once(|| Mutex::new(MemoryManager {
+        mapper,
+        frame_allocator,
+    }));
 
     unsafe {
         ALLOCATOR.lock().init(HEAP_START as *mut u8, HEAP_SIZE);
     }
 
     Ok(())
+}
+
+impl MemoryManager {
+    fn map_page_at(&mut self, virt_addr: VirtAddr, flags: PageTableFlags){
+        let page = Page::containing_address(virt_addr);
+        let phys_frame = self.frame_allocator.allocate_frame().expect("no frame available");
+        unsafe {
+            self.mapper.map_to(page, phys_frame, flags, &mut self.frame_allocator).expect("error when mapping page").flush();
+        }
+    }
+}
+
+// allocate physical frames and map them to the address
+pub fn map_page_at(virt_addr: VirtAddr, flags: PageTableFlags){
+    let mut mem_manager_lock = MEMORY_MANAGER.get().unwrap().lock();
+    mem_manager_lock.map_page_at(virt_addr, flags);
 }

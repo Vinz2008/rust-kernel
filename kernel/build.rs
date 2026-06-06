@@ -1,6 +1,7 @@
 use std::{env, fs, path::PathBuf, process::Command};
 
 fn main() {
+    println!("cargo:rustc-link-arg=-Tkernel/linker.ld");
     println!("cargo:rerun-if-changed=../initrd");
 
     let profile = env::var("PROFILE").unwrap();
