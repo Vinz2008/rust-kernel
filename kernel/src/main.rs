@@ -41,6 +41,8 @@ mod allocator;
 
 mod elf;
 
+mod userspace;
+
 mod initrd;
 
 mod cli;

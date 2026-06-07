@@ -20,28 +20,49 @@ lazy_static! {
             let stack_end = stack_start + (STACK_SIZE as u64);
             stack_end
         };
+
+        // TODO : replace this static stack with a per process stack (each proc will have a kernel stack and a user stack, need to switch tss.privilege_stack_table when switch_to_userspace)
+        tss.privilege_stack_table[0] = {
+            const STACK_SIZE: usize = 4096 * 5;
+            static mut STACK : [u8; STACK_SIZE] = [0; STACK_SIZE];
+            let stack_start = VirtAddr::from_ptr(&raw const STACK);
+            let stack_end = stack_start + (STACK_SIZE as u64);
+            stack_end
+        };
         tss
     };
 }
 
-struct Selectors {
-    code_selector: SegmentSelector,
+pub struct Selectors {
+    kernel_code_selector: SegmentSelector,
+    kernel_data_selector : SegmentSelector,
+    pub user_data_selector : SegmentSelector,
+    pub user_code_selector : SegmentSelector,
     tss_selector: SegmentSelector,
 }
 
 lazy_static! {
-    static ref GDT: (GlobalDescriptorTable, Selectors) = {
+    pub static ref GDT: (GlobalDescriptorTable, Selectors) = {
         let mut gdt = GlobalDescriptorTable::new();
-        let code_selector = gdt.append(Descriptor::kernel_code_segment());
+        let kernel_code_selector = gdt.append(Descriptor::kernel_code_segment());
+        let kernel_data_selector = gdt.append(Descriptor::kernel_data_segment());
+        let user_data_selector = gdt.append(Descriptor::user_data_segment());
+        let user_code_selector = gdt.append(Descriptor::user_code_segment());
         let tss_selector = gdt.append(Descriptor::tss_segment(&TSS));
-        (gdt, Selectors { code_selector, tss_selector })
+        (gdt, Selectors { 
+            kernel_code_selector,
+            kernel_data_selector,
+            user_data_selector,
+            user_code_selector,
+            tss_selector 
+        })
     };
 }
 
 pub fn init() {
     GDT.0.load();
     unsafe {
-        CS::set_reg(GDT.1.code_selector);
+        CS::set_reg(GDT.1.kernel_code_selector);
         load_tss(GDT.1.tss_selector);
     }
 }

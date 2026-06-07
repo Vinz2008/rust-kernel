@@ -1,10 +1,6 @@
-use core::{intrinsics::copy_nonoverlapping, mem, ptr};
-
 use alloc::{slice, vec::Vec};
-use elf::{ElfBytes, endian::AnyEndian};
-use x86_64::{VirtAddr, structures::paging::{Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::map_page_at, elf::{get_elf_entrypoint, load_elf}, serial_println};
+use crate::{elf::{get_elf_entrypoint, load_elf}, serial_println};
 
 #[repr(C)]
 pub struct TarHeader {
