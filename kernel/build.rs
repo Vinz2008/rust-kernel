@@ -7,7 +7,7 @@ fn main() {
     let profile = env::var("PROFILE").unwrap();
 
     let init_bin = PathBuf::from(format!(
-        "../target/x86_64-rust_kernel/{profile}/init"
+        "../target/x86_64-unknown-rust_kernel/{profile}/init"
     ));
 
 

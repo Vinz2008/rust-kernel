@@ -4,7 +4,7 @@ use alloc::{slice, vec::Vec};
 use elf::{ElfBytes, endian::AnyEndian};
 use x86_64::{VirtAddr, structures::paging::{Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::map_page_at, serial_println};
+use crate::{allocator::map_page_at, elf::{get_elf_entrypoint, load_elf}, serial_println};
 
 #[repr(C)]
 pub struct TarHeader {
@@ -143,51 +143,13 @@ pub fn load_initrd(){
     let init_file_header = *tar_initrd.headers.iter().find(|e| e.get_filename().unwrap() == "./init").unwrap();
     let init_content = init_file_header.content().unwrap();
 
-    let file = ElfBytes::<AnyEndian>::minimal_parse(init_content).expect("Error when parsing init elf");
+    let file = load_elf(init_content);
 
-    let text_section_header = file.section_header_by_name(".text").unwrap().unwrap();
-    let text_section_content = file.section_data(&text_section_header).unwrap().0;
-    //serial_println!("text section content : {:?}", text_section_content);
-
-    for prog_header in file.segments().unwrap() {
-        serial_println!("type={} offset={:#x} vaddr={:#x} filesz={:#x} memsz={:#x}", prog_header.p_type, prog_header.p_offset, prog_header.p_vaddr, prog_header.p_filesz, prog_header.p_memsz);
-        match prog_header.p_type {
-            elf::abi::PT_LOAD => {
-                let virtual_addr = prog_header.p_vaddr;
-                let start = VirtAddr::new(virtual_addr);
-                let end = VirtAddr::new(virtual_addr + prog_header.p_memsz as u64 - 1);
-
-                let start_page = Page::<Size4KiB>::containing_address(start);
-                let end_page = Page::<Size4KiB>::containing_address(end);
-                for page in Page::range_inclusive(start_page, end_page){
-                    map_page_at(page.start_address(), PageTableFlags::PRESENT | PageTableFlags::WRITABLE);
-                }
-                
-                let segment_off = prog_header.p_offset as usize;
-                let bytes = &init_content[segment_off..(segment_off + prog_header.p_filesz as usize)];
-                let virtual_addr_ptr = virtual_addr as usize as *mut u8;
-                unsafe {
-                    ptr::copy_nonoverlapping(bytes.as_ptr(), virtual_addr_ptr, prog_header.p_filesz as usize);
-                }
-                if prog_header.p_filesz < prog_header.p_memsz {
-                    // zero the rest
-                    unsafe {
-                        ptr::write_bytes(virtual_addr_ptr.add(prog_header.p_filesz as usize), 0, (prog_header.p_memsz - prog_header.p_filesz) as usize);
-                    }
-                }
-            },
-
-            elf::abi::PT_GNU_RELRO | elf::abi::PT_PHDR | elf::abi::PT_GNU_STACK => {},
-            p_type => serial_println!("unknown p_type : {}", p_type),
-        }
-    }
-
-    let common_data = file.find_common_data().expect("error when getting common data of init elf");
-    let (sym_table, str_table) = file.symbol_table().expect("symbol table not found in init elf").unwrap();
-
-    let s = sym_table.iter().find(|sym| str_table.get(sym.st_name as usize).unwrap() == "main").expect("main not found");
+    //let common_data = file.find_common_data().expect("error when getting common data of init elf");
     
-    let main_virt_address = s.st_value as usize;
-    let main_fun : extern "C" fn() -> i32 = unsafe { core::mem::transmute(main_virt_address) };
-    main_fun();
+    let entrypoint_fun = get_elf_entrypoint(&file);
+
+    //serial_println!("main : 0x{:x}", entrypoint_fun as usize);
+
+    entrypoint_fun();
 }

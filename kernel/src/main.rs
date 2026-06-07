@@ -39,6 +39,8 @@ mod gdt;
 mod paging;
 mod allocator;
 
+mod elf;
+
 mod initrd;
 
 mod cli;
