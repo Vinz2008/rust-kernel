@@ -23,6 +23,12 @@ fn main() -> i32 {
     /*unsafe {
         core::arch::asm!("ud2");
     }*/
+    unsafe {
+        core::arch::asm!("
+            mov rax, 2
+            int 0x80
+        ");
+    }
     0
 }
 
