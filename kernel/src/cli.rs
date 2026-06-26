@@ -31,11 +31,11 @@ impl CliContext {
                     if is_first {
                         is_first = false;
                     } else {
-                        writer_lock.write_byte(b' ');
+                        writer_lock.write_ansi_byte(b' ');
                     }
                     writer_lock.write_string(arg);
                 }
-                writer_lock.write_byte(b'\n');
+                writer_lock.write_ansi_byte(b'\n');
             }
             cmd => println!("Unknown command {} !!", cmd),
         }

@@ -34,6 +34,10 @@ impl ColorCode {
     pub const fn new(foreground: Color, background: Color) -> ColorCode {
         ColorCode((background as u8) << 4 | (foreground as u8))
     }
+
+    fn set_foreground(&mut self, foreground: Color){
+        self.0 = (self.0 & 0xF0) | foreground as u8;
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,9 +50,11 @@ pub struct ScreenChar {
 const BUFFER_HEIGHT: usize = 25;
 pub const BUFFER_WIDTH: usize = 80;
 
+const DEFAULT_COLOR : ColorCode = ColorCode::new(Color::Black, Color::Black);
+
 const EMPTY_CHAR : ScreenChar = ScreenChar { 
     ascii_character: b' ', 
-    color_code: ColorCode::new(Color::Black, Color::Black),
+    color_code: DEFAULT_COLOR,
 };
 
 #[repr(transparent)]
@@ -89,46 +95,102 @@ impl Buffer {
     }
 }
 
+enum AnsiState {
+    Normal,
+    Escape,
+    CSI,
+}
+
 pub struct Writer {
     column_pos: usize,
     row_pos : usize,
     color_code: ColorCode,
     pub buffer: &'static mut Buffer,
+    ansi_state : AnsiState, // for escape codes
+    // CSI = control sequence introducer = ESC [ = 0x1B 0x5B
+    csi_buf : [u8; 16],
+    csi_len : usize,
 }
 
 
 impl Writer {
+    fn write_byte(&mut self , byte: u8){
+        if self.column_pos >= BUFFER_WIDTH {
+            self.new_line();
+        }
 
-    pub fn write_byte(&mut self, byte: u8) {
-        match byte {
-            b'\n' => self.new_line(),
-            byte => {
-                if self.column_pos >= BUFFER_WIDTH {
-                    self.new_line();
+        let row = self.row_pos;
+        let col = self.column_pos;
+
+        let color_code = self.color_code;
+        self.buffer.write_char(row, col, ScreenChar {
+            ascii_character: byte,
+            color_code,
+        });
+        self.column_pos += 1;
+    }
+
+    pub fn write_ansi_byte(&mut self, byte: u8) {
+        match self.ansi_state {
+            AnsiState::Normal => {
+                match byte {
+                    b'\n' => self.new_line(),
+                    0x20..=0x7e => self.write_byte(byte),
+                    0x1B => {
+                        self.ansi_state = AnsiState::Escape;
+                    }
+                    _ => self.write_byte(0xfe),
                 }
-
-                let row = self.row_pos;
-                let col = self.column_pos;
-
-                let color_code = self.color_code;
-                self.buffer.write_char(row, col, ScreenChar {
-                    ascii_character: byte,
-                    color_code,
-                });
-                self.column_pos += 1;
+            },
+            AnsiState::Escape => {
+                match byte {
+                    b'[' => {
+                        self.ansi_state = AnsiState::CSI;
+                        self.csi_len = 0;
+                    }
+                    _ => self.ansi_state = AnsiState::Normal,
+                }
+            }
+            AnsiState::CSI => {
+                if self.csi_len < self.csi_buf.len() {
+                    self.csi_buf[self.csi_len] = byte;
+                    self.csi_len += 1;
+                } else {
+                    self.ansi_state = AnsiState::Normal;
+                    return;
+                }
+                
+                if 0x40 <= byte && byte <= 0x7e { 
+                    // is final byte, so csi finished
+                    self.execute_escape_code();
+                    self.ansi_state = AnsiState::Normal;
+                    self.csi_len = 0;
+                }
             }
         }
+        
     }
 
     pub fn write_string(&mut self, s: &str) {
         for byte in s.bytes() {
-            match byte {
-                // printable ASCII byte or newline
-                0x20..=0x7e | b'\n' => self.write_byte(byte),
-                // not part of printable ASCII range
-                _ => self.write_byte(0xfe),
-            }
+            self.write_ansi_byte(byte);
+        }
+    }
 
+    fn execute_escape_code(&mut self){
+        match &self.csi_buf[..self.csi_len] {
+            b"H" => todo!(), // TODO : cursor home, moves the cursor to row 0, col 0
+            b"2J" => self.reset(),
+            b"0m" => self.color_code = DEFAULT_COLOR,
+            b"30m" => self.color_code.set_foreground(Color::Black),
+            b"31m" => self.color_code.set_foreground(Color::Red),
+            b"32m" => self.color_code.set_foreground(Color::Green),
+            b"33m" => self.color_code.set_foreground(Color::Yellow),
+            b"34m" => self.color_code.set_foreground(Color::Blue),
+            b"35m" => self.color_code.set_foreground(Color::Magenta),
+            b"36m" => self.color_code.set_foreground(Color::Cyan),
+            b"37m" => self.color_code.set_foreground(Color::White),
+            _ => {}
         }
     }
 
@@ -180,6 +242,9 @@ lazy_static! {
         row_pos: 0,
         color_code: ColorCode::new(Color::Yellow, Color::Black),
         buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
+        ansi_state:AnsiState::Normal,
+        csi_buf: [0; 16],
+        csi_len: 0,
     });
 }
 

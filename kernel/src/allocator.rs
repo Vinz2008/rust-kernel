@@ -1,6 +1,6 @@
 use linked_list_allocator::LockedHeap;
 use spin::{Mutex, Once};
-use x86_64::{VirtAddr, structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
+use x86_64::{VirtAddr, structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, Size4KiB, Translate, mapper::{MapToError, TranslateResult}}};
 
 use crate::paging::BootInfoFrameAllocator;
 
@@ -10,12 +10,12 @@ pub const HEAP_SIZE: usize = 10 * 1024 * 1024; // 10MB, if needed, increase it
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty(); 
 
-struct MemoryManager {
+pub struct MemoryManager {
     mapper: OffsetPageTable<'static>,
     frame_allocator : BootInfoFrameAllocator,
 }
 
-static MEMORY_MANAGER: Once<Mutex<MemoryManager>> = Once::new();
+pub static MEMORY_MANAGER: Once<Mutex<MemoryManager>> = Once::new();
 
 
 fn init_heap_mapping(mapper: &mut impl Mapper<Size4KiB>, frame_allocator : &mut impl FrameAllocator<Size4KiB>) -> Result<(), MapToError<Size4KiB>>{
@@ -55,6 +55,13 @@ impl MemoryManager {
         let phys_frame = self.frame_allocator.allocate_frame().expect("no frame available");
         unsafe {
             self.mapper.map_to(page, phys_frame, flags, &mut self.frame_allocator).expect("error when mapping page").flush();
+        }
+    }
+
+    pub fn get_page_flags(&self, virt_addr: VirtAddr) -> Option<PageTableFlags> {
+        match self.mapper.translate(virt_addr){
+            TranslateResult::Mapped { frame, offset, flags } => Some(flags),
+            TranslateResult::NotMapped { .. } | TranslateResult::InvalidFrameAddress(_) => None
         }
     }
 }

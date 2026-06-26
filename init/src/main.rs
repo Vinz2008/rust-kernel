@@ -9,6 +9,8 @@ fn panic(_info: &PanicInfo) -> ! {
 }
 
 
+// TODO : add a rt crate to do syscall on the userspace side, can use it after for the std ?
+
 // for now, not special function, just normal function (need to make the _start function when porting the std, TODO)
 #[allow(deref_nullptr)]
 //#[allow(static_mut_refs)]
@@ -23,20 +25,32 @@ fn main() -> i32 {
     /*unsafe {
         core::arch::asm!("ud2");
     }*/
-    unsafe {
-        core::arch::asm!("
-            mov rax, 2
-            int 0x80
-        ");
+
+    
+    loop {
+        let message = "test";
+        unsafe {
+            core::arch::asm!(
+                "int 0x80", 
+                in("rax") 1,
+                in("rdi") message.as_ptr() as usize,
+                in("rsi") message.len(),
+            );
+        }
     }
-    0
 }
 
 
 static mut TEST_BSS: [u8; 4096] = [0; 4096];
 
 #[unsafe(no_mangle)]
-pub fn _start() {
+pub fn _start() -> ! {
     main();
-    loop {} // TODO : after having syscalls, add the exit syscall here
+    unsafe {
+        core::arch::asm!(
+            "int 0x80",
+            in("rax") 0,
+        );
+    }
+    loop {}
 }

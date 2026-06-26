@@ -1,6 +1,8 @@
+use core::ops::DerefMut;
+
 use alloc::{slice, vec::Vec};
 
-use crate::{elf::{get_elf_entrypoint, load_elf}, serial_println};
+use crate::{elf::{USER_STACK_TOP, get_elf_entrypoint, load_elf}, process::{CURRENT_PROCESS, Pid, Process}, serial_println, userspace::switch_to_userspace};
 
 #[repr(C)]
 pub struct TarHeader {
@@ -145,7 +147,10 @@ pub fn load_initrd(){
     
     let entrypoint_fun = get_elf_entrypoint(&file);
 
+    *CURRENT_PROCESS.lock().deref_mut() = Some(Process::new_process());
+
     //serial_println!("main : 0x{:x}", entrypoint_fun as usize);
 
-    entrypoint_fun();
+    //entrypoint_fun();
+    switch_to_userspace(entrypoint_fun, USER_STACK_TOP);
 }

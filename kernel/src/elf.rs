@@ -6,7 +6,7 @@ use x86_64::{VirtAddr, structures::paging::{Page, PageTableFlags, Size4KiB}};
 use crate::{allocator::map_page_at, serial_println, userspace::EntryPointFun};
 
 
-const USER_STACK_TOP: usize = 0x0000_7fff_ffff_f000;
+pub const USER_STACK_TOP: usize = 0x0000_7fff_ffff_f000;
 const USER_STACK_SIZE: usize = 64 * 1024; // 64 KiB
 
 fn elf_to_page_permission(elf_flags : u32) -> PageTableFlags {
@@ -82,11 +82,7 @@ pub fn load_elf<'a>(content : &'a [u8]) -> ElfBytes<'a, AnyEndian>{
 }
 
 pub fn get_elf_entrypoint(elf : &ElfBytes<'_, AnyEndian>) -> EntryPointFun {
-    let (sym_table, str_table) = elf.symbol_table().expect("symbol table not found in init elf").unwrap();
-
-    let s = sym_table.iter().find(|sym| str_table.get(sym.st_name as usize).unwrap() == "main").expect("main not found");
-    
-    let main_virt_address = s.st_value as usize;
-    let main_fun : EntryPointFun = unsafe { core::mem::transmute(main_virt_address) };
-    main_fun
+    let entrypoint_virt_address = elf.ehdr.e_entry as usize;
+    let entrypoint_fun : EntryPointFun = unsafe { core::mem::transmute(entrypoint_virt_address) };
+    entrypoint_fun
 }

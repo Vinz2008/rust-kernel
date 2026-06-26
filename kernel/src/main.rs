@@ -41,6 +41,10 @@ mod allocator;
 
 mod elf;
 
+mod syscall;
+
+mod process;
+
 mod userspace;
 
 mod initrd;
