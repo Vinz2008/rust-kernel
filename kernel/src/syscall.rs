@@ -1,9 +1,9 @@
-use core::arch::naked_asm;
+use core::{arch::naked_asm, ops::DerefMut};
 
 use alloc::{slice, str};
-use x86_64::{VirtAddr, structures::paging::{Page, PageTableFlags, Size4KiB}};
+use x86_64::{VirtAddr, registers::control::{Cr3, Cr3Flags}, structures::paging::{Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::MEMORY_MANAGER, println, process::CURRENT_PROCESS, serial_println};
+use crate::{allocator::MEMORY_MANAGER, elf::{get_elf_entrypoint, load_elf}, initrd::initrd_get_file_content, println, process::{CURRENT_PROCESS, PROCESSES, Process}, serial_println, userspace::{USER_STACK_TOP, switch_to_userspace}};
 
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
@@ -86,10 +86,11 @@ impl SyscallRegs {
 
 fn syscall_interrupt_handler(regs : &mut SyscallRegs){
     let sycall_nb = regs.rax;
-    serial_println!("syscall rax number : {}", sycall_nb);
+    //serial_println!("syscall rax number : {}", sycall_nb);
     let ret = match sycall_nb {
         0 => syscall_exit(regs),
-        1 => syscall_print(regs), // TODO : change these syscalls ?
+        1 => syscall_print(regs).map(|_| 0).unwrap_or(u64::MAX), // TODO : change these syscalls ?
+        2 => syscall_exec(regs).map(|_| 0).unwrap_or(u64::MAX),
         _ => u64::MAX,
     };
     regs.rax = ret;
@@ -131,19 +132,49 @@ fn check_ptr(ptr : usize, len : usize, is_write : bool) -> bool {
     true
 }
 
-fn syscall_print(regs : &mut SyscallRegs) -> u64 {
-    let message_ptr = regs.get_arg(1) as *const u8;
-    serial_println!("message_ptr : {:?}", message_ptr);
-    
-    let message_len = regs.get_arg(2);
-    if !check_ptr(message_ptr as usize, message_len as usize, false) {
-        return u64::MAX;
+fn create_str<'a>(str_ptr : *const u8, str_len : usize) -> Option<&'a str> {
+    if !check_ptr(str_ptr as usize, str_len, false) {
+        return None;
     }
-    let slice = unsafe { slice::from_raw_parts(message_ptr, message_len as usize) };
+    let slice = unsafe { slice::from_raw_parts(str_ptr, str_len) };
     let s = match str::from_utf8(slice){
         Ok(s) => s,
-        Err(_) => return u64::MAX,
+        Err(_) => return None,
     };
+    Some(s)
+}
+
+fn syscall_print(regs : &mut SyscallRegs) -> Option<()> {
+    let message_ptr = regs.get_arg(1) as *const u8;
+    //serial_println!("message_ptr : {:?}", message_ptr);
+    
+    let message_len = regs.get_arg(2);
+    let s = create_str(message_ptr, message_len as usize)?;
     println!("{}", s);
-    0
+    Some(())
+}
+
+fn syscall_exec(regs : &mut SyscallRegs) -> Option<()> {
+    serial_println!("start exe");
+    let path_ptr = regs.get_arg(1) as *const u8;
+    let path_len = regs.get_arg(2);
+    let path = create_str(path_ptr, path_len as usize)?;
+    
+    // TODO : merge this with the init executing, by having an run_exe function in userspace.rs
+    let file_content = initrd_get_file_content(path);
+
+    let new_proc_pid = Process::new_process();
+    {
+        let processes_lock = PROCESSES.lock();
+        let process = processes_lock.get(new_proc_pid.0.get()-1).unwrap();
+        unsafe { Cr3::write(process.page_table_phys, Cr3Flags::empty()) };
+    }
+    *CURRENT_PROCESS.lock().deref_mut() = Some(new_proc_pid);
+
+    let elf = load_elf(file_content);
+
+    let entrypoint = get_elf_entrypoint(&elf);
+
+    // TODO : don't switch to it, just add it to the scheduler
+    switch_to_userspace(entrypoint, USER_STACK_TOP)
 }

@@ -26,18 +26,20 @@ fn main() -> i32 {
         core::arch::asm!("ud2");
     }*/
 
+    let process_path = "/cli";
     
-    loop {
-        let message = "test";
-        unsafe {
-            core::arch::asm!(
-                "int 0x80", 
-                in("rax") 1,
-                in("rdi") message.as_ptr() as usize,
-                in("rsi") message.len(),
-            );
-        }
+    unsafe {
+        core::arch::asm!(
+            "int 0x80", 
+            in("rax") 2,
+            in("rdi") process_path.as_ptr() as usize,
+            in("rsi") process_path.len(),
+            lateout("rax") _,
+            clobber_abi("C"),
+            options(nostack),
+        );
     }
+    0
 }
 
 
@@ -50,7 +52,7 @@ pub fn _start() -> ! {
         core::arch::asm!(
             "int 0x80",
             in("rax") 0,
+            options(noreturn),
         );
     }
-    loop {}
 }

@@ -14,7 +14,7 @@ extern crate alloc;
 use bootloader::{BootInfo, entry_point};
 use x86_64::VirtAddr;
 
-use crate::{initrd::load_initrd, utils::hlt_loop};
+use crate::{initrd::load_initrd_init, utils::hlt_loop};
 
 
 mod tests;
@@ -55,7 +55,6 @@ entry_point!(kernel_main);
 
 
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
-    //println!("Hello World{}", "!");
 
     #[cfg(test)]
     test_main();
@@ -74,29 +73,12 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     allocator::init_heap(mapper, frame_allocator).expect("heap initialization failed");
 
-    /*let heap_value = Box::new(41);
-    println!("heap_value at {:p}", heap_value);
-
-    let mut vec = Vec::new();
-    for i in 0..500 {
-        vec.push(i);
-    }
-    println!("vec at {:p}", vec.as_slice());
-
-    let reference_counted = Rc::new(vec![1, 2, 3]);
-    let cloned_reference = reference_counted.clone();
-    println!("current reference count is {}", Rc::strong_count(&cloned_reference));
-    core::mem::drop(reference_counted);
-    println!("reference count is {} now", Rc::strong_count(&cloned_reference));*/
-
     
-    load_initrd();
+    load_initrd_init();
     
+    /*cli::init_cli();
 
-    
-    cli::init_cli();
-
-    serial_println!("test");
+    serial_println!("test");*/
 
     hlt_loop();
 }

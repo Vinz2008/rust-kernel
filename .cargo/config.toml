@@ -13,3 +13,4 @@ runner = "bootimage runner"
 
 [alias]
 build-init = "build -p init --target x86_64-unknown-rust_kernel.json"
+build-userspace = "build -p cli --target x86_64-unknown-rust_kernel.json"

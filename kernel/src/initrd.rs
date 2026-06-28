@@ -1,8 +1,11 @@
 use core::ops::DerefMut;
 
-use alloc::{slice, vec::Vec};
+use alloc::{format, slice, vec::Vec};
+use lazy_static::lazy_static;
+use spin::Mutex;
+use x86_64::registers::control::{Cr3, Cr3Flags};
 
-use crate::{elf::{USER_STACK_TOP, get_elf_entrypoint, load_elf}, process::{CURRENT_PROCESS, Pid, Process}, serial_println, userspace::switch_to_userspace};
+use crate::{elf::{get_elf_entrypoint, load_elf}, process::{CURRENT_PROCESS, PROCESSES, Process}, serial_println, userspace::{USER_STACK_TOP, switch_to_userspace}};
 
 #[repr(C)]
 pub struct TarHeader {
@@ -90,7 +93,7 @@ pub struct TarInitrd<'a> {
     pub headers : Vec<&'a TarHeader>, // for now, find all headers, in the future lazy iterate ? (TODO ?)
 }
 
-fn get_headers<'a>(content : &'a [u8]) -> Result<Vec<&'a TarHeader>, TarError> {
+fn get_headers(content : &[u8]) -> Result<Vec<&TarHeader>, TarError> {
     // TODO : maybe reserve the size of the vec to not waste memory ? (would need to do 2 times traversal, is it a good idea ?)
     let mut headers = Vec::new();
     let mut header_ptr = content.as_ptr();
@@ -107,7 +110,7 @@ fn get_headers<'a>(content : &'a [u8]) -> Result<Vec<&'a TarHeader>, TarError> {
         unsafe {
             header_ptr = header_ptr.add(((size/512) + 1) * 512);
         }
-        if size % 512 != 0 {
+        if !size.is_multiple_of(512) {
             unsafe {
                 header_ptr = header_ptr.add(512);
             }
@@ -129,28 +132,51 @@ impl<'a> TarInitrd<'a> {
 
 const INITRD_BYTES : &[u8] = include_bytes!("../initrd.tar");
 
-// TODO : refactor this code, to have the exe loading part in a separate elf.rs
+lazy_static! {
+    pub static ref TAR_INITRD : Mutex<TarInitrd<'static>> = {
+        let tar_initrd = TarInitrd::new(INITRD_BYTES).expect("invalid tar");
+        Mutex::new(tar_initrd)
+    };
+}
 
-pub fn load_initrd(){
+fn _initrd_get_file_content<'a>(headers : &[&'a TarHeader], path : &str) -> &'a [u8] {
+    let tar_path = format!(".{}", path);
+    let init_file_header = *headers.iter().find(|e| e.get_filename().unwrap() == tar_path).unwrap();
+    init_file_header.content().unwrap()
+}
 
-    let tar_initrd = TarInitrd::new(INITRD_BYTES).expect("invalid tar");
-    for (idx, &file) in tar_initrd.headers.iter().enumerate() {
-        serial_println!("file {} {} {}", idx, file.get_filename().unwrap(), file.size().unwrap());
-    }
+pub fn initrd_get_file_content<'a>(path : &str) -> &'a [u8] {
+    let tar_initrd = TAR_INITRD.lock();
+    _initrd_get_file_content(&tar_initrd.headers, path)
+}
 
-    let init_file_header = *tar_initrd.headers.iter().find(|e| e.get_filename().unwrap() == "./init").unwrap();
-    let init_content = init_file_header.content().unwrap();
+pub fn load_initrd_init() -> ! {
+    let entrypoint_fun = {
+        let tar_initrd = TAR_INITRD.lock();
+        for (idx, &file) in tar_initrd.headers.iter().enumerate() {
+            serial_println!("file {} {} {}", idx, file.get_filename().unwrap(), file.size().unwrap());
+        }
 
-    let file = load_elf(init_content);
+        let init_content = _initrd_get_file_content(&tar_initrd.headers, "/init");
+        
 
-    //let common_data = file.find_common_data().expect("error when getting common data of init elf");
+        *CURRENT_PROCESS.lock().deref_mut() = Some(Process::new_process());
+
+        let file = load_elf(init_content);
+
+        //let common_data = file.find_common_data().expect("error when getting common data of init elf");
+        
+        get_elf_entrypoint(&file)
+    };
     
-    let entrypoint_fun = get_elf_entrypoint(&file);
 
-    *CURRENT_PROCESS.lock().deref_mut() = Some(Process::new_process());
-
-    //serial_println!("main : 0x{:x}", entrypoint_fun as usize);
-
-    //entrypoint_fun();
-    switch_to_userspace(entrypoint_fun, USER_STACK_TOP);
+    {
+        let processes_lock = PROCESSES.lock();
+        let process = processes_lock.get(CURRENT_PROCESS.lock().unwrap().0.get()-1).unwrap();
+            
+        // TODO : active this again after mapping the elf and user stack pages into the user page table by passing the process ref to the load_elf function
+        // unsafe { Cr3::write(process.page_table_phys, Cr3Flags::empty()) };
+    }
+    
+    switch_to_userspace(entrypoint_fun, USER_STACK_TOP)
 }

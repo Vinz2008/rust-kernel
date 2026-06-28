@@ -3,13 +3,10 @@ use core::ptr;
 use elf::{ElfBytes, endian::AnyEndian};
 use x86_64::{VirtAddr, structures::paging::{Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::map_page_at, serial_println, userspace::EntryPointFun};
+use crate::{allocator::map_page_at, serial_println, userspace::{EntryPointFun, map_userspace_stack}};
 
 
-pub const USER_STACK_TOP: usize = 0x0000_7fff_ffff_f000;
-const USER_STACK_SIZE: usize = 64 * 1024; // 64 KiB
-
-fn elf_to_page_permission(elf_flags : u32) -> PageTableFlags {
+pub fn elf_to_page_permission(elf_flags : u32) -> PageTableFlags {
     let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
     if elf_flags & elf::abi::PF_W != 0 {
         flags |= PageTableFlags::WRITABLE;
@@ -35,7 +32,7 @@ pub fn load_elf<'a>(content : &'a [u8]) -> ElfBytes<'a, AnyEndian>{
             elf::abi::PT_LOAD => {
                 let virtual_addr = prog_header.p_vaddr;
                 let start = VirtAddr::new(virtual_addr);
-                let end = VirtAddr::new(virtual_addr + prog_header.p_memsz as u64 - 1);
+                let end = VirtAddr::new(virtual_addr + prog_header.p_memsz - 1);
 
                 let start_page = Page::<Size4KiB>::containing_address(start);
                 let end_page = Page::<Size4KiB>::containing_address(end);
@@ -64,20 +61,8 @@ pub fn load_elf<'a>(content : &'a [u8]) -> ElfBytes<'a, AnyEndian>{
         }
     }
 
-
-    // map stack
-    // TODO : maybe replace the pattern like this with a range of page with a function mapping multiple page (like for example a start address and a number of pages or a len ?)
-
-    let start = VirtAddr::new((USER_STACK_TOP - USER_STACK_SIZE) as u64);
-    let end = VirtAddr::new((USER_STACK_TOP - 1) as u64);
-    let start_page = Page::<Size4KiB>::containing_address(start);
-    let end_page = Page::<Size4KiB>::containing_address(end);
-    let page_table_flags = elf_to_page_permission(stack_flags);
-    for page in Page::range_inclusive(start_page, end_page){
-        map_page_at(page.start_address(),  page_table_flags);
-    }
-
-
+    map_userspace_stack(stack_flags);
+    
     file
 }
 

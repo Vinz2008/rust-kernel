@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "kernel",
-    "init",
+    "init", 
+    "userspace/cli",
 ]
 default-members = ["kernel"]

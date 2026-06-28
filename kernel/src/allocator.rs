@@ -1,8 +1,8 @@
 use linked_list_allocator::LockedHeap;
 use spin::{Mutex, Once};
-use x86_64::{VirtAddr, structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, Size4KiB, Translate, mapper::{MapToError, TranslateResult}}};
+use x86_64::{PhysAddr, VirtAddr, structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB, Translate, mapper::{MapToError, TranslateResult}}};
 
-use crate::paging::BootInfoFrameAllocator;
+use crate::paging::{BootInfoFrameAllocator, PHYSICAL_MEMORY_OFFSET, active_level_4_table};
 
 pub const HEAP_START: usize = 0x_4444_4444_0000;
 pub const HEAP_SIZE: usize = 10 * 1024 * 1024; // 10MB, if needed, increase it
@@ -61,7 +61,7 @@ impl MemoryManager {
     pub fn get_page_flags(&self, virt_addr: VirtAddr) -> Option<PageTableFlags> {
         match self.mapper.translate(virt_addr){
             TranslateResult::Mapped { frame, offset, flags } => Some(flags),
-            TranslateResult::NotMapped { .. } | TranslateResult::InvalidFrameAddress(_) => None
+            TranslateResult::NotMapped | TranslateResult::InvalidFrameAddress(_) => None
         }
     }
 }
@@ -70,4 +70,22 @@ impl MemoryManager {
 pub fn map_page_at(virt_addr: VirtAddr, flags: PageTableFlags){
     let mut mem_manager_lock = MEMORY_MANAGER.get().unwrap().lock();
     mem_manager_lock.map_page_at(virt_addr, flags);
+}
+
+
+pub fn allocate_userspace_level_4_table() -> PhysFrame {
+    let physical_memory_offset = *PHYSICAL_MEMORY_OFFSET.get().unwrap();
+    let kernel_page_table = unsafe { active_level_4_table() };
+    let new_table_frame = MEMORY_MANAGER.get().unwrap().lock().frame_allocator.allocate_frame().unwrap();
+    let new_table_phys = new_table_frame.start_address();
+    let new_table_virt = physical_memory_offset + new_table_phys.as_u64();
+    let page_table_ptr: *mut PageTable = new_table_virt.as_mut_ptr();
+
+    let page_table = unsafe { &mut *page_table_ptr };
+    page_table.zero();
+    for i in 256..512 {
+        page_table[i] = kernel_page_table[i].clone();
+    }
+
+    new_table_frame
 }
