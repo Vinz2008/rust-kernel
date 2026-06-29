@@ -13,6 +13,7 @@ fn panic(_info: &PanicInfo) -> ! {
 #[unsafe(no_mangle)]
 fn main() -> i32 {
     let message = "test";
+    
     unsafe {
         core::arch::asm!(
             "int 0x80", 
@@ -24,6 +25,7 @@ fn main() -> i32 {
             options(nostack),
         );
     }
+
     loop {}
 }
 

@@ -3,7 +3,7 @@ use core::ptr;
 use elf::{ElfBytes, endian::AnyEndian};
 use x86_64::{VirtAddr, structures::paging::{Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::map_page_at, serial_println, userspace::{EntryPointFun, map_userspace_stack}};
+use crate::{allocator::map_page_at_in, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, process::Process, serial_println, userspace::{EntryPointFun, map_userspace_stack}};
 
 
 pub fn elf_to_page_permission(elf_flags : u32) -> PageTableFlags {
@@ -17,7 +17,7 @@ pub fn elf_to_page_permission(elf_flags : u32) -> PageTableFlags {
     flags
 }
 
-pub fn load_elf<'a>(content : &'a [u8]) -> ElfBytes<'a, AnyEndian>{
+pub fn load_elf<'a>(content : &'a [u8], process : &Process) -> ElfBytes<'a, AnyEndian>{
     let file = ElfBytes::<AnyEndian>::minimal_parse(content).expect("Error when parsing init elf");
 
     //let text_section_header = file.section_header_by_name(".text").unwrap().unwrap();
@@ -37,19 +37,21 @@ pub fn load_elf<'a>(content : &'a [u8]) -> ElfBytes<'a, AnyEndian>{
                 let start_page = Page::<Size4KiB>::containing_address(start);
                 let end_page = Page::<Size4KiB>::containing_address(end);
                 for page in Page::range_inclusive(start_page, end_page){
-                    map_page_at(page.start_address(), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE);
+                    map_page_at_in(process.page_table_phys.start_address(), page.start_address(), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE);
                 }
                 
                 let segment_off = prog_header.p_offset as usize;
                 let bytes = &content[segment_off..(segment_off + prog_header.p_filesz as usize)];
-                let virtual_addr_ptr = virtual_addr as usize as *mut u8;
+                let page_table_frame = process.page_table_phys;
+                let phys_frame = unsafe { translate_addr_in(page_table_frame, start) }.unwrap(); // TODO : replace this unwrap with proper error handling ? (can it even fail because I just mapped the pages isn't it ?)
+                let virtual_addr_ptr_of_phys = (PHYSICAL_MEMORY_OFFSET.get().unwrap().as_u64() + phys_frame.as_u64()) as *mut u8;
                 unsafe {
-                    ptr::copy_nonoverlapping(bytes.as_ptr(), virtual_addr_ptr, prog_header.p_filesz as usize);
+                    ptr::copy_nonoverlapping(bytes.as_ptr(), virtual_addr_ptr_of_phys, prog_header.p_filesz as usize);
                 }
                 if prog_header.p_filesz < prog_header.p_memsz {
                     // zero the rest
                     unsafe {
-                        ptr::write_bytes(virtual_addr_ptr.add(prog_header.p_filesz as usize), 0, (prog_header.p_memsz - prog_header.p_filesz) as usize);
+                        ptr::write_bytes(virtual_addr_ptr_of_phys.add(prog_header.p_filesz as usize), 0, (prog_header.p_memsz - prog_header.p_filesz) as usize);
                     }
                 }
             },
@@ -61,7 +63,7 @@ pub fn load_elf<'a>(content : &'a [u8]) -> ElfBytes<'a, AnyEndian>{
         }
     }
 
-    map_userspace_stack(stack_flags);
+    map_userspace_stack(process, stack_flags);
     
     file
 }

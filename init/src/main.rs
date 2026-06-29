@@ -26,6 +26,20 @@ fn main() -> i32 {
         core::arch::asm!("ud2");
     }*/
 
+    let message = "init start";
+
+    unsafe {
+        core::arch::asm!(
+            "int 0x80", 
+            in("rax") 1,
+            in("rdi") message.as_ptr() as usize,
+            in("rsi") message.len(),
+            lateout("rax") _,
+            clobber_abi("C"),
+            options(nostack),
+        );
+    }
+
     let process_path = "/cli";
     
     unsafe {

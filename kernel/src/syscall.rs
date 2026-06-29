@@ -1,9 +1,9 @@
 use core::{arch::naked_asm, ops::DerefMut};
 
 use alloc::{slice, str};
-use x86_64::{VirtAddr, registers::control::{Cr3, Cr3Flags}, structures::paging::{Page, PageTableFlags, Size4KiB}};
+use x86_64::{VirtAddr, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::MEMORY_MANAGER, elf::{get_elf_entrypoint, load_elf}, initrd::initrd_get_file_content, println, process::{CURRENT_PROCESS, PROCESSES, Process}, serial_println, userspace::{USER_STACK_TOP, switch_to_userspace}};
+use crate::{allocator::get_page_flags_in, elf::{get_elf_entrypoint, load_elf}, initrd::initrd_get_file_content, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, println, process::{CURRENT_PROCESS, PROCESSES, Process}, serial_println, userspace::{USER_STACK_TOP, switch_to_userspace}};
 
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
@@ -114,9 +114,14 @@ fn check_ptr(ptr : usize, len : usize, is_write : bool) -> bool {
     };
     let start_page = Page::<Size4KiB>::containing_address(VirtAddr::new(ptr as u64));
     let end_page = Page::<Size4KiB>::containing_address(VirtAddr::new((end-1) as u64));
-    let memory_manager_lock = MEMORY_MANAGER.get().unwrap().lock();
-    for page in Page::range_inclusive(start_page, end_page){
-        let flags = memory_manager_lock.get_page_flags(page.start_address());
+
+    let page_table = unsafe { active_level_4_table() };
+    let phys_offset = *PHYSICAL_MEMORY_OFFSET.get().unwrap();
+    let mut mapper = unsafe { OffsetPageTable::new(page_table, phys_offset) };
+
+
+    for page in Page::range_inclusive(start_page, end_page){ 
+        let flags = get_page_flags_in(&mut mapper, page.start_address());
         match flags {
             Some(flags) => {
                 if !flags.contains(PageTableFlags::USER_ACCESSIBLE){
@@ -146,35 +151,43 @@ fn create_str<'a>(str_ptr : *const u8, str_len : usize) -> Option<&'a str> {
 
 fn syscall_print(regs : &mut SyscallRegs) -> Option<()> {
     let message_ptr = regs.get_arg(1) as *const u8;
-    //serial_println!("message_ptr : {:?}", message_ptr);
     
     let message_len = regs.get_arg(2);
+    serial_println!("print syscall: ptr={:#x}, len={}", message_ptr as usize, message_len);
+
     let s = create_str(message_ptr, message_len as usize)?;
+    serial_println!("print s : {}", s);
     println!("{}", s);
     Some(())
 }
 
 fn syscall_exec(regs : &mut SyscallRegs) -> Option<()> {
     serial_println!("start exe");
+    
     let path_ptr = regs.get_arg(1) as *const u8;
     let path_len = regs.get_arg(2);
+
     let path = create_str(path_ptr, path_len as usize)?;
     
+
     // TODO : merge this with the init executing, by having an run_exe function in userspace.rs
     let file_content = initrd_get_file_content(path);
 
-    let new_proc_pid = Process::new_process();
-    {
+    serial_println!("exec: A");
+
+    let (entrypoint, kernel_stack_top, user_page_table) = {
+        let new_proc_pid = Process::new_process();
         let processes_lock = PROCESSES.lock();
-        let process = processes_lock.get(new_proc_pid.0.get()-1).unwrap();
-        unsafe { Cr3::write(process.page_table_phys, Cr3Flags::empty()) };
-    }
-    *CURRENT_PROCESS.lock().deref_mut() = Some(new_proc_pid);
+        let process = new_proc_pid.get_process(&processes_lock);
 
-    let elf = load_elf(file_content);
+        //unsafe { Cr3::write(process.page_table_phys, Cr3Flags::empty()) };
+        *CURRENT_PROCESS.lock().deref_mut() = Some(new_proc_pid);
 
-    let entrypoint = get_elf_entrypoint(&elf);
+        let elf = load_elf(file_content, process);
+        let entrypoint = get_elf_entrypoint(&elf);
+        (entrypoint, process.kernel_stack_top, process.page_table_phys)
+    };
 
     // TODO : don't switch to it, just add it to the scheduler
-    switch_to_userspace(entrypoint, USER_STACK_TOP)
+    switch_to_userspace(entrypoint, USER_STACK_TOP, kernel_stack_top, user_page_table)
 }

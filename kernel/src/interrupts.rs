@@ -1,8 +1,10 @@
+use core::fmt::Write;
+
 use pc_keyboard::{DecodedKey, HandleControl, KeyCode, PS2Keyboard, ScancodeSet1, layouts};
 use spin::Mutex;
-use x86_64::{PrivilegeLevel, VirtAddr, instructions::port::Port, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
+use x86_64::{PrivilegeLevel, VirtAddr, instructions::{interrupts, port::Port}, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
-use crate::{cli::{CLI_CONTEXT, CursorMove}, gdt, pic::{PIC_1_OFFSET, PICS}, print, println, serial_println, syscall::syscall_interrupt_stub, utils::hlt_loop, vga::WRITER};
+use crate::{backtrace::Backtrace, cli::{CLI_CONTEXT, CursorMove}, gdt, pic::{PIC_1_OFFSET, PICS}, print, println, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::hlt_loop, vga::WRITER};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -51,6 +53,10 @@ extern "x86-interrupt" fn page_fault_handler(stack_frame: InterruptStackFrame, e
     println!("Accessed Address: {:?}", Cr2::read());
     println!("Error Code: {:?}", error_code);
     println!("{:#?}", stack_frame);
+    if let Some(mut serial_lock) = SERIAL1.try_lock() {
+        let backtrace = Backtrace::new();
+        interrupts::without_interrupts(|| serial_lock.write_fmt(format_args!("backtrace page fault {}", backtrace)).unwrap());
+    }
     hlt_loop();
 }
 

@@ -2,4 +2,4 @@
 
 cargo build-init "$@"
 cargo build-userspace "$@"
-cargo build "$@"
+#cargo build "$@"

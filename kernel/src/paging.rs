@@ -2,6 +2,8 @@ use bootloader::{bootinfo::{MemoryMap, MemoryRegionType}};
 use spin::Once;
 use x86_64::{PhysAddr, VirtAddr, registers::control::Cr3, structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB, page_table::FrameError}};
 
+use crate::{allocator::pml4_index, serial_println};
+
 
 pub static PHYSICAL_MEMORY_OFFSET : Once<VirtAddr> = Once::new();
 
@@ -16,15 +18,15 @@ pub unsafe fn active_level_4_table() -> &'static mut PageTable {
 
 
 pub unsafe fn translate_addr(addr: VirtAddr) -> Option<PhysAddr> {
-    translate_addr_inner(addr)
+    let (level_4_table_frame, _) = Cr3::read();
+    translate_addr_in(level_4_table_frame, addr)
 }
 
-fn translate_addr_inner(addr: VirtAddr) -> Option<PhysAddr> {
-    let (level_4_table_frame, _) = Cr3::read();
+pub unsafe fn translate_addr_in(page_table_frame : PhysFrame, addr: VirtAddr) -> Option<PhysAddr> {
     let table_indexes = [
         addr.p4_index(), addr.p3_index(), addr.p2_index(), addr.p1_index()
     ];
-    let mut frame = level_4_table_frame;
+    let mut frame = page_table_frame;
     for &index in &table_indexes {
         let virt = *PHYSICAL_MEMORY_OFFSET.get().unwrap() + frame.start_address().as_u64();
         let table_ptr: *const PageTable = virt.as_ptr();
@@ -69,6 +71,10 @@ impl BootInfoFrameAllocator {
         const PAGE_SIZE : usize = 4096; // TODO : change this when using huge pages (pass through args ?)
         let frame_addresses = addr_ranges.flat_map(|r| r.step_by(PAGE_SIZE));
         frame_addresses.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
+    }
+
+    pub fn get_memory_map_pml4_index(&self) -> usize {
+        pml4_index(self.memory_map as *const _ as u64)
     }
 }
 

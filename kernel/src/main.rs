@@ -72,7 +72,6 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     let frame_allocator = unsafe { paging::BootInfoFrameAllocator::init(&boot_info.memory_map) };
 
     allocator::init_heap(mapper, frame_allocator).expect("heap initialization failed");
-
     
     load_initrd_init();
     

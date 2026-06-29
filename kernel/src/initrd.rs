@@ -3,7 +3,6 @@ use core::ops::DerefMut;
 use alloc::{format, slice, vec::Vec};
 use lazy_static::lazy_static;
 use spin::Mutex;
-use x86_64::registers::control::{Cr3, Cr3Flags};
 
 use crate::{elf::{get_elf_entrypoint, load_elf}, process::{CURRENT_PROCESS, PROCESSES, Process}, serial_println, userspace::{USER_STACK_TOP, switch_to_userspace}};
 
@@ -160,23 +159,33 @@ pub fn load_initrd_init() -> ! {
         let init_content = _initrd_get_file_content(&tar_initrd.headers, "/init");
         
 
-        *CURRENT_PROCESS.lock().deref_mut() = Some(Process::new_process());
+        let process_pid = Process::new_process();
+        *CURRENT_PROCESS.lock().deref_mut() = Some(process_pid);
 
-        let file = load_elf(init_content);
+
+        let file = {
+            let processes = PROCESSES.lock();
+            load_elf(init_content, process_pid.get_process(&processes))
+        };
 
         //let common_data = file.find_common_data().expect("error when getting common data of init elf");
         
         get_elf_entrypoint(&file)
     };
-    
 
-    {
+    let (kernel_stack_top, user_page_table) = {
         let processes_lock = PROCESSES.lock();
         let process = processes_lock.get(CURRENT_PROCESS.lock().unwrap().0.get()-1).unwrap();
-            
-        // TODO : active this again after mapping the elf and user stack pages into the user page table by passing the process ref to the load_elf function
-        // unsafe { Cr3::write(process.page_table_phys, Cr3Flags::empty()) };
-    }
+        fn read_rsp() -> u64 {
+            let rsp: u64;
+            unsafe { core::arch::asm!("mov {}, rsp", out(reg) rsp) };
+            rsp
+        }
+        serial_println!("before cr3 rsp={:#x}", read_rsp());
+        serial_println!("new cr3={:?}", process.page_table_phys);
+        //unsafe { Cr3::write(process.page_table_phys, Cr3Flags::empty()) };
+        (process.kernel_stack_top, process.page_table_phys)
+    };
     
-    switch_to_userspace(entrypoint_fun, USER_STACK_TOP)
+    switch_to_userspace(entrypoint_fun, USER_STACK_TOP, kernel_stack_top, user_page_table)
 }
