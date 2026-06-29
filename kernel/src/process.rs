@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use spin::Mutex;
 use x86_64::{PhysAddr, VirtAddr, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
-use crate::{allocator::{allocate_userspace_level_4_table, map_page_at_in, map_page_phys_at_in}, serial_println};
+use crate::{allocator::{allocate_userspace_level_4_table, map_page_at_in, map_page_phys_at_in}};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Pid(pub NonZero<usize>);
@@ -38,7 +38,7 @@ impl Process {
     pub fn new_process() -> Pid {
         let mut processes_lock = PROCESSES.lock();
         let new_process_idx = processes_lock.len();
-        let new_process_pid = (new_process_idx + 1).try_into().unwrap();
+        let new_process_pid = new_process_idx + 1;
         let new_process_pid = Pid(NonZero::new(new_process_pid).unwrap());
         let page_table_phys = allocate_userspace_level_4_table();
 

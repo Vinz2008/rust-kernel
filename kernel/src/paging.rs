@@ -2,7 +2,7 @@ use bootloader::{bootinfo::{MemoryMap, MemoryRegionType}};
 use spin::Once;
 use x86_64::{PhysAddr, VirtAddr, registers::control::Cr3, structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB, page_table::FrameError}};
 
-use crate::{allocator::pml4_index, serial_println};
+use crate::allocator::pml4_index;
 
 
 pub static PHYSICAL_MEMORY_OFFSET : Once<VirtAddr> = Once::new();

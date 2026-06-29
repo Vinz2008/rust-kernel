@@ -4,7 +4,7 @@ use pc_keyboard::{DecodedKey, HandleControl, KeyCode, PS2Keyboard, ScancodeSet1,
 use spin::Mutex;
 use x86_64::{PrivilegeLevel, VirtAddr, instructions::{interrupts, port::Port}, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
-use crate::{backtrace::Backtrace, cli::{CLI_CONTEXT, CursorMove}, gdt, pic::{PIC_1_OFFSET, PICS}, print, println, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::hlt_loop, vga::WRITER};
+use crate::{backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, print, println, ringbuf::RingBuf, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::hlt_loop};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -82,6 +82,8 @@ lazy_static! {
 const DELETE: char = '\u{007f}';
 const BACKSPACE: char = '\u{0008}';
 
+pub static KEYBOARD_RINGBUF : Mutex<RingBuf<char, 512>> = Mutex::new(RingBuf::new());
+
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     let mut keyboard = KEYBOARD.lock();
     let mut port = Port::new(0x60);
@@ -91,7 +93,7 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
         if let Some(key) = keyboard.process_keyevent(key_event) {
             match key {
                 DecodedKey::Unicode(c) => {
-                    match c {
+                    /*match c {
                         '\n' => {
                             CLI_CONTEXT.lock().launch_cmd_cli();
                         }
@@ -105,16 +107,18 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
                             cli_context_lock.add_char(c);
                             cli_context_lock.cursor.move_cursor(CursorMove::Right);
                         },
-                    }
+                    }*/
+                    KEYBOARD_RINGBUF.lock().push(c);
+                    print!("{}", c);
                 },
                 DecodedKey::RawKey(key) => {
                     match key {
                         // TODO  shift, ctrl, etc
                         KeyCode::ArrowLeft => {
-                            CLI_CONTEXT.lock().cursor.move_cursor(CursorMove::Left);
+                            //CLI_CONTEXT.lock().cursor.move_cursor(CursorMove::Left);
                         }
                         KeyCode::ArrowRight => {
-                            CLI_CONTEXT.lock().cursor.move_cursor(CursorMove::Right);
+                            //CLI_CONTEXT.lock().cursor.move_cursor(CursorMove::Right);
                         },
                         KeyCode::LShift => {}, // Do nothing, because pc-keyboard already does the shift for the chars
                         _ => serial_println!("{:?}", key),

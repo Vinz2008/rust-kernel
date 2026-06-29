@@ -51,6 +51,8 @@ mod initrd;
 
 mod cli;
 
+mod ringbuf;
+
 entry_point!(kernel_main);
 
 

@@ -3,7 +3,7 @@ use core::{arch::naked_asm, ops::DerefMut};
 use alloc::{slice, str};
 use x86_64::{VirtAddr, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::get_page_flags_in, elf::{get_elf_entrypoint, load_elf}, initrd::initrd_get_file_content, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, println, process::{CURRENT_PROCESS, PROCESSES, Process}, serial_println, userspace::{USER_STACK_TOP, switch_to_userspace}};
+use crate::{allocator::get_page_flags_in, elf::{get_elf_entrypoint, load_elf}, initrd::initrd_get_file_content, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, println, process::{CURRENT_PROCESS, PROCESSES, Process}, serial_println, userspace::{USER_STACK_TOP, switch_to_userspace}};
 
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
@@ -91,6 +91,7 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
         0 => syscall_exit(regs),
         1 => syscall_print(regs).map(|_| 0).unwrap_or(u64::MAX), // TODO : change these syscalls ?
         2 => syscall_exec(regs).map(|_| 0).unwrap_or(u64::MAX),
+        3 => syscall_get_char(regs).map(|c| c as u64).unwrap_or(u64::MAX),
         _ => u64::MAX,
     };
     regs.rax = ret;
@@ -190,4 +191,8 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<()> {
 
     // TODO : don't switch to it, just add it to the scheduler
     switch_to_userspace(entrypoint, USER_STACK_TOP, kernel_stack_top, user_page_table)
+}
+
+fn syscall_get_char(_regs : &mut SyscallRegs) -> Option<char> {
+    KEYBOARD_RINGBUF.lock().pop()
 }
