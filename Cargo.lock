@@ -29,6 +29,9 @@ checksum = "13f6a8a495d2f93fe3d6eb3a224f9aa749a63cfd746ed03eb5ddcbd00ade7d8f"
 [[package]]
 name = "cli"
 version = "0.1.0"
+dependencies = [
+ "rt",
+]
 
 [[package]]
 name = "const_fn"
@@ -45,6 +48,9 @@ checksum = "55dd888a213fc57e957abf2aa305ee3e8a28dbe05687a251f33b637cd46b0070"
 [[package]]
 name = "init"
 version = "0.1.0"
+dependencies = [
+ "rt",
+]
 
 [[package]]
 name = "lazy_static"
@@ -89,6 +95,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rt"
+version = "0.1.0"
+dependencies = [
+ "syscall_nbs",
+]
+
+[[package]]
 name = "rust-kernel"
 version = "0.1.0"
 dependencies = [
@@ -100,6 +113,7 @@ dependencies = [
  "pc-keyboard",
  "pic8259",
  "spin 0.12.0",
+ "syscall_nbs",
  "uart_16550",
  "x86_64",
 ]
@@ -139,6 +153,10 @@ checksum = "5b9eb1a2f4c41445a3a0ff9abc5221c5fcd28e1f13cd7c0397706f9ac938ddb0"
 dependencies = [
  "lock_api",
 ]
+
+[[package]]
+name = "syscall_nbs"
+version = "0.1.0"
 
 [[package]]
 name = "uart_16550"

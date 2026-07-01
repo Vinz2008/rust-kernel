@@ -3,6 +3,6 @@ resolver = "3"
 members = [
     "kernel",
     "init", 
-    "userspace/cli",
+    "userspace/cli", "rt", "syscall_nbs",
 ]
 default-members = ["kernel"]
