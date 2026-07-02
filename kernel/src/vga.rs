@@ -3,8 +3,6 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 use x86_64::instructions::{interrupts, port::Port};
 
-use crate::cli::{CLI_CURSOR};
-
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]

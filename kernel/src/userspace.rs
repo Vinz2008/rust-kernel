@@ -1,13 +1,11 @@
-use core::arch::asm;
+use x86_64::{VirtAddr, structures::paging::{Page, Size4KiB}};
 
-use x86_64::{VirtAddr, registers::rflags::RFlags, structures::paging::{Page, PhysFrame, Size4KiB}};
+use crate::{allocator::map_page_at_in, elf::elf_to_page_permission, process::Process};
 
-use crate::{allocator::map_page_at_in, elf::elf_to_page_permission, gdt::{GDT, set_tss_privilege_stack}, process::Process, serial_println};
-
-pub type EntryPointFun = extern "C" fn() -> !;
+//pub type EntryPointFun = extern "C" fn() -> !;
 
 
-pub fn switch_to_userspace(entry_point : EntryPointFun, stack_addr : usize, kernel_stack_top : VirtAddr, user_page_table : PhysFrame) -> ! {
+/*pub fn switch_to_userspace(entry_point : EntryPointFun, stack_addr : usize, kernel_stack_top : VirtAddr, user_page_table : PhysFrame) -> ! {
     let stack_segment = GDT.1.user_data_selector.0 as usize | 3;
     let code_segment = GDT.1.user_code_selector.0 as usize | 3;
     let stack_addr = stack_addr & !0xf; // 16 bytes align the stack, for syscall and iret
@@ -37,7 +35,7 @@ pub fn switch_to_userspace(entry_point : EntryPointFun, stack_addr : usize, kern
             options(noreturn),
         )
     }
-}
+}*/
 
 pub const USER_STACK_TOP: usize = 0x0000_7fff_ffff_f000;
 const USER_STACK_SIZE: usize = 64 * 1024; // 64 KiB

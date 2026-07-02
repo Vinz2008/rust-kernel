@@ -4,7 +4,7 @@ use alloc::{slice, str};
 use syscall_nbs::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT, SYSCALL_WAIT_PID};
 use x86_64::{VirtAddr, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::get_page_flags_in, elf::load_elf, initrd::initrd_get_file_content, interrupts::{KEYBOARD_RINGBUF}, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{ReadyMode, SCHEDULER, Scheduler, SchedulerState, schedule}, serial_println, userspace::USER_STACK_TOP, utils::Registers};
+use crate::{allocator::get_page_flags_in, elf::load_elf, initrd::initrd_get_file_content, interrupts::{KEYBOARD_RINGBUF}, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, schedule}, serial_println, utils::Registers};
 
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
@@ -88,8 +88,8 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
     let sycall_nb = regs.rax;
     //serial_println!("syscall rax number : {}", sycall_nb);
     let ret = match sycall_nb {
-        SYSCALL_EXIT => syscall_exit(regs).map(|_| 0 as u64),
-        SYSCALL_PRINT => syscall_print(regs).map(|_| 0 as u64), // TODO : change these syscalls ?
+        SYSCALL_EXIT => syscall_exit(regs).map(|_| 0),
+        SYSCALL_PRINT => syscall_print(regs).map(|_| 0), // TODO : change these syscalls ?
         SYSCALL_EXEC => syscall_exec(regs),
         SYSCALL_GET_CHAR => syscall_get_char(regs),
         SYSCALL_WAIT_PID => syscall_wait_pid(regs).map(|_| 0),

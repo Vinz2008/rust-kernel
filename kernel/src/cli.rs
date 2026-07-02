@@ -1,15 +1,12 @@
-use core::cmp::min;
-
 use arrayvec::ArrayString;
 use lazy_static::lazy_static;
 use spin::Mutex;
-use x86_64::instructions::port::Port;
 
-use crate::{print, println, vga::{BUFFER_HEIGHT, BUFFER_WIDTH, WRITER}};
+use crate::{print, println, vga::WRITER};
 
 pub struct CliContext {
     cli_line : ArrayString<100>,
-    pub cursor : Cursor,
+    //pub cursor : Cursor,
 }
 
 impl CliContext {
@@ -40,25 +37,25 @@ impl CliContext {
             cmd => println!("Unknown command {} !!", cmd),
         }
         print!(">");
-        (self.cursor.row_pos, self.cursor.col_pos) = {
+        /*(self.cursor.row_pos, self.cursor.col_pos) = {
             let writer_lock = WRITER.lock();
             (writer_lock.get_row(), writer_lock.get_col())
-        };
+        };*/
         //self.cursor.update_cursor();
         self.cli_line.clear();
     }
 }
 
-pub struct Cursor {
+/*pub struct Cursor {
     row_pos : usize,
     col_pos : usize,
-}
+}*/
 
 
 
 // TODO : add a custom cursor mode for cli or other program wanting to control completely the cursor
 
-impl Cursor {
+//impl Cursor {
     /*fn update_cursor(&self){
         let pos = self.row_pos * BUFFER_WIDTH + self.col_pos;
         let mut port1 = Port::<u8>::new(0x3D4);
@@ -99,14 +96,14 @@ impl Cursor {
     pub fn move_cursor(&mut self, cursor_move : CursorMove){
         self.move_cursor_by(cursor_move, 1);
     }*/
-}
+//}
 
-pub static CLI_CURSOR : Mutex<Cursor> = Mutex::new(Cursor { row_pos: 0, col_pos: 0 });
+//pub static CLI_CURSOR : Mutex<Cursor> = Mutex::new(Cursor { row_pos: 0, col_pos: 0 });
 
 lazy_static! {
     pub static ref CLI_CONTEXT : Mutex<CliContext> = {
         let cli_context = CliContext {
-            cursor: Cursor { row_pos: WRITER.lock().get_row(), col_pos: 0 },
+            //cursor: Cursor { row_pos: WRITER.lock().get_row(), col_pos: 0 },
             cli_line: ArrayString::new_const(),
         };
         Mutex::new(cli_context)
@@ -114,9 +111,9 @@ lazy_static! {
 }
 
 
-pub fn init_cli(){
+/*pub fn init_cli(){
     print!(">");
     let mut cursor_lock = CLI_CONTEXT.lock();
     cursor_lock.cursor.col_pos += 1;
     //cursor_lock.cursor.update_cursor();
-}
+}*/

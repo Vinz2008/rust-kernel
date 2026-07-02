@@ -1,6 +1,6 @@
 use core::num::NonZero;
 
-use alloc::{collections::vec_deque::VecDeque, vec::Vec};
+use alloc::vec::Vec;
 use x86_64::{PhysAddr, VirtAddr, instructions::interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
 use crate::{allocator::{allocate_userspace_level_4_table, map_page_at_in, map_page_phys_at_in}, gdt::GDT, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main}, userspace::USER_STACK_TOP, utils::Registers};
@@ -10,9 +10,9 @@ pub struct Pid(pub NonZero<usize>);
 
 impl Pid {
     pub const unsafe fn new_unchecked(pid_nb : usize) -> Option<Pid> {
-        match NonZero::new(pid_nb){
+        match NonZero::new(pid_nb) {
             Some(pid) => Some(Pid(pid)),
-            None => return None,
+            None => None,
         }
     }
 

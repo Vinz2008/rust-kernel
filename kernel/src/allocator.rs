@@ -2,7 +2,7 @@ use linked_list_allocator::LockedHeap;
 use spin::{Mutex, MutexGuard, Once};
 use x86_64::{PhysAddr, VirtAddr, structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB, Translate, mapper::{MapToError, TranslateResult}}};
 
-use crate::{paging::{BootInfoFrameAllocator, PHYSICAL_MEMORY_OFFSET, active_level_4_table}, serial_println};
+use crate::{paging::{BootInfoFrameAllocator, PHYSICAL_MEMORY_OFFSET, active_level_4_table}};
 
 pub const KERNEL_HEAP_START: usize = 0xffff_9000_0000_0000;
 pub const KERNEL_HEAP_SIZE: usize = 10 * 1024 * 1024; // 10MB, if needed, increase it

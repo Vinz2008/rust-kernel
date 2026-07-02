@@ -1,9 +1,7 @@
-use core::ptr;
-
 use elf::{ElfBytes, endian::AnyEndian, segment::ProgramHeader};
 use x86_64::{VirtAddr, structures::paging::{Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::map_page_at_in, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, process::Process, serial_println, userspace::{EntryPointFun, map_userspace_stack}};
+use crate::{allocator::map_page_at_in, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, process::Process, serial_println, userspace::map_userspace_stack};
 
 
 pub fn elf_to_page_permission(elf_flags : u32) -> PageTableFlags {

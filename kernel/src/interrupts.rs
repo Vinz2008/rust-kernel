@@ -4,7 +4,7 @@ use pc_keyboard::{DecodedKey, HandleControl, KeyCode, PS2Keyboard, ScancodeSet1,
 use spin::Mutex;
 use x86_64::{PrivilegeLevel, VirtAddr, instructions::{interrupts, port::Port}, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
-use crate::{backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, print, println, ringbuf::RingBuf, scheduler::{SCHEDULER, schedule}, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
+use crate::{backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, println, ringbuf::RingBuf, scheduler::{SCHEDULER, schedule}, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -122,7 +122,7 @@ fn timer_interrupt_handler(regs : &mut Registers){
 
     let tick = TICKS.fetch_add(1, Ordering::Relaxed);
 
-    if tick % TICKS_EACH_SCHEDULE == 0 && regs.cs & 0b11 == 3 {
+    if tick.is_multiple_of(TICKS_EACH_SCHEDULE) && regs.cs & 0b11 == 3 {
         // timer in user code
         schedule(regs);
     }

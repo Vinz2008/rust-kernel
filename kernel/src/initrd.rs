@@ -3,7 +3,7 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 use x86_64::instructions::interrupts;
 
-use crate::{elf::load_elf, process::Process, scheduler::{SCHEDULER, start_first_process}, serial_println, userspace::{USER_STACK_TOP}};
+use crate::{elf::load_elf, process::Process, scheduler::{SCHEDULER, start_first_process}, serial_println};
 
 #[repr(C)]
 pub struct TarHeader {

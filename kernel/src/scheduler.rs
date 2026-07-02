@@ -4,7 +4,7 @@ use alloc::{collections::vec_deque::VecDeque, vec::Vec};
 use spin::Mutex;
 use x86_64::{instructions::interrupts, registers::control::{Cr3, Cr3Flags}};
 
-use crate::{gdt::set_tss_privilege_stack, process::{Pid, Process, ProcessKind}, serial_println, utils::Registers};
+use crate::{gdt::set_tss_privilege_stack, process::{Pid, Process}, serial_println, utils::Registers};
 
 #[derive(PartialEq, Eq)]
 pub enum SchedulerState {
