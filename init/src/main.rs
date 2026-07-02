@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use rt::syscall::{syscall_exec, syscall_print};
+use rt::syscall::{syscall_exec, syscall_print, syscall_wait_pid};
 
 // for now, not special function, just normal function (need to make the _start function when porting the std, TODO)
 #[unsafe(no_mangle)]

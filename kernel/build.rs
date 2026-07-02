@@ -5,6 +5,8 @@ fn add_exe_to_initrd(exe : &str, profile : &str){
         "../target/x86_64-unknown-rust_kernel/{profile}/{exe}"
     ));
 
+    println!("cargo:rerun-if-changed={}", bin.display());
+
     dbg!(bin.display());
     let to_path = format!("../initrd/{exe}");
     fs::copy(&bin, to_path).expect("failed to copy executable");

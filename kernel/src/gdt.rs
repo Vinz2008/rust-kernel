@@ -37,8 +37,8 @@ pub fn set_tss_privilege_stack(stack_top : VirtAddr){
 }
 
 pub struct Selectors {
-    kernel_code_selector: SegmentSelector,
-    kernel_data_selector : SegmentSelector,
+    pub kernel_code_selector: SegmentSelector,
+    pub kernel_data_selector : SegmentSelector,
     pub user_data_selector : SegmentSelector,
     pub user_code_selector : SegmentSelector,
     tss_selector: SegmentSelector,

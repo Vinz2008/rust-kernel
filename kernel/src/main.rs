@@ -14,7 +14,7 @@ extern crate alloc;
 use bootloader::{BootInfo, entry_point};
 use x86_64::VirtAddr;
 
-use crate::{initrd::load_initrd_init, utils::hlt_loop};
+use crate::{initrd::load_initrd_init, process::Process, utils::hlt_loop};
 
 
 mod tests;
@@ -76,6 +76,8 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     allocator::init_heap(mapper, frame_allocator).expect("heap initialization failed");
     
+    Process::init_idle_process();
+
     load_initrd_init();
     
     /*cli::init_cli();

@@ -4,7 +4,7 @@ use pc_keyboard::{DecodedKey, HandleControl, KeyCode, PS2Keyboard, ScancodeSet1,
 use spin::Mutex;
 use x86_64::{PrivilegeLevel, VirtAddr, instructions::{interrupts, port::Port}, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
-use crate::{backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, print, println, ringbuf::RingBuf, scheduler::schedule, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}};
+use crate::{backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, print, println, ringbuf::RingBuf, scheduler::{SCHEDULER, schedule}, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -166,17 +166,22 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
                             cli_context_lock.cursor.move_cursor(CursorMove::Right);
                         },
                     }*/
+                    serial_println!("keyboard: pushing {:?}", c);
                     KEYBOARD_RINGBUF.lock().push(c);
-                    print!("{}", c);
+                    serial_println!("keyboard: waking waiter");
+                    SCHEDULER.lock().new_char();
+                    //print!("{}", c);
                 },
                 DecodedKey::RawKey(key) => {
                     match key {
                         // TODO  shift, ctrl, etc
                         KeyCode::ArrowLeft => {
                             //CLI_CONTEXT.lock().cursor.move_cursor(CursorMove::Left);
+                            WRITER.lock().move_cursor(CursorMove::Left);
                         }
                         KeyCode::ArrowRight => {
                             //CLI_CONTEXT.lock().cursor.move_cursor(CursorMove::Right);
+                            WRITER.lock().move_cursor(CursorMove::Right);
                         },
                         KeyCode::LShift => {}, // Do nothing, because pc-keyboard already does the shift for the chars
                         _ => serial_println!("{:?}", key),

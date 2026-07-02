@@ -2,7 +2,7 @@ use alloc::{format, slice, vec::Vec};
 use lazy_static::lazy_static;
 use spin::Mutex;
 
-use crate::{elf::load_elf, process::Process, scheduler::{SCHEDULER, start_first_process}, serial_println, userspace::{USER_STACK_TOP, switch_to_userspace}};
+use crate::{elf::load_elf, process::Process, scheduler::{SCHEDULER, start_first_process}, serial_println, userspace::{USER_STACK_TOP}};
 
 #[repr(C)]
 pub struct TarHeader {
@@ -160,6 +160,8 @@ pub fn load_initrd_init() -> ! {
         let process_pid = Process::empty_process();
         //*CURRENT_PROCESS.lock().deref_mut() = Some(process_pid);
 
+        //Process::init_idle_process(); // need to do it here after the init pid 1, to have the pid 1 for init and pid 2 for idle process
+
 
         let elf = {
             let scheduler_lock = SCHEDULER.lock();
@@ -176,7 +178,6 @@ pub fn load_initrd_init() -> ! {
         let mut scheduler_lock = SCHEDULER.lock();
         let process = process_pid.get_process_mut(&mut scheduler_lock.processes);
         process.init_process(entrypoint as usize);
-        scheduler_lock.runnable_processes.push_back(process_pid);
     }
     
     start_first_process(process_pid)

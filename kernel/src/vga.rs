@@ -1,7 +1,9 @@
 use core::{fmt, ptr};
 use lazy_static::lazy_static;
 use spin::Mutex;
-use x86_64::instructions::interrupts;
+use x86_64::instructions::{interrupts, port::Port};
+
+use crate::cli::{CLI_CURSOR};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,10 +49,10 @@ pub struct ScreenChar {
     pub color_code: ColorCode,
 }
 
-const BUFFER_HEIGHT: usize = 25;
+pub const BUFFER_HEIGHT: usize = 25;
 pub const BUFFER_WIDTH: usize = 80;
 
-const DEFAULT_COLOR : ColorCode = ColorCode::new(Color::Black, Color::Black);
+const DEFAULT_COLOR : ColorCode = ColorCode::new(Color::Yellow, Color::Black);
 
 const EMPTY_CHAR : ScreenChar = ScreenChar { 
     ascii_character: b' ', 
@@ -110,8 +112,18 @@ pub struct Writer {
     // CSI = control sequence introducer = ESC [ = 0x1B 0x5B
     csi_buf : [u8; 16],
     csi_len : usize,
+
+    cursor_row_pos : usize,
+    cursor_col_pos : usize,
 }
 
+pub enum CursorMove {
+    Left,
+    Right,
+}
+
+
+// TODO : simplify this, for example with the cursor handling, moving the most possible to the userspace
 
 impl Writer {
     fn write_byte(&mut self , byte: u8){
@@ -127,7 +139,15 @@ impl Writer {
             ascii_character: byte,
             color_code,
         });
+        //self.move_cursor(CursorMove::Right);
+        self.sync_cursor_to_print_pos();
         self.column_pos += 1;
+
+        if self.column_pos >= BUFFER_WIDTH {
+            self.new_line();
+        } else {
+            self.sync_cursor_to_print_pos();
+        }
     }
 
     pub fn write_ansi_byte(&mut self, byte: u8) {
@@ -172,6 +192,7 @@ impl Writer {
     }
 
     pub fn write_string(&mut self, s: &str) {
+
         for byte in s.bytes() {
             self.write_ansi_byte(byte);
         }
@@ -199,8 +220,13 @@ impl Writer {
             self.buffer.shift_lines();
         } else {
             self.row_pos += 1;
+            //self.cursor_row_pos = self.cursor_row_pos + 1;
         }
+        //self.cursor_col_pos = 0;
+        //self.update_cursor();
+
         self.column_pos = 0;
+        self.sync_cursor_to_print_pos();
     }    
 
     pub fn get_row(&self) -> usize {
@@ -222,10 +248,52 @@ impl Writer {
         }
     }
 
+    fn sync_cursor_to_print_pos(&mut self) {
+        self.cursor_row_pos = self.row_pos;
+        self.cursor_col_pos = self.column_pos;
+        self.update_cursor();
+    }
+
+    fn update_cursor(&self){
+        let pos = self.cursor_row_pos * BUFFER_WIDTH + self.cursor_col_pos;
+        let mut port1 = Port::<u8>::new(0x3D4);
+        let mut port2 = Port::<u8>::new(0x3D5);
+        unsafe {
+            port1.write(0x0F);
+            port2.write((pos & 0xFF) as u8);
+            port1.write(0x0E);
+            port2.write(((pos >> 8) & 0xFF) as u8);
+        }
+        //self.handle_cursor_color();
+    }
+
+    fn move_cursor_at(&mut self, row : usize, col : usize){
+        self.cursor_row_pos = row;
+        self.cursor_col_pos = col;
+        self.update_cursor();
+    }
+
+    pub fn move_cursor_by(&mut self, cursor_move : CursorMove, count : usize){
+        let pos = self.cursor_row_pos * BUFFER_WIDTH + self.cursor_col_pos;
+        let max_pos = BUFFER_HEIGHT * BUFFER_WIDTH - 1;
+        let new_pos = match cursor_move {
+            CursorMove::Right => pos.saturating_add(count).min(max_pos),
+            CursorMove::Left => pos.saturating_sub(count),
+        };
+        let new_row = new_pos / BUFFER_WIDTH;
+        let new_col = new_pos % BUFFER_WIDTH;
+        self.move_cursor_at(new_row, new_col);
+    }
+
+    pub fn move_cursor(&mut self, cursor_move : CursorMove){
+        self.move_cursor_by(cursor_move, 1);
+    }
+
     pub fn reset(&mut self){
         self.buffer.clear();
         self.column_pos = 0;
         self.row_pos = 0;
+        self.sync_cursor_to_print_pos();
     }
 }
 
@@ -237,15 +305,21 @@ impl fmt::Write for Writer {
 }
 
 lazy_static! {
-    pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer {
-        column_pos: 0,
-        row_pos: 0,
-        color_code: ColorCode::new(Color::Yellow, Color::Black),
-        buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
-        ansi_state:AnsiState::Normal,
-        csi_buf: [0; 16],
-        csi_len: 0,
-    });
+    pub static ref WRITER: Mutex<Writer> = {
+        let mut writer = Writer {
+            column_pos: 0,
+            row_pos: 0,
+            color_code: ColorCode::new(Color::Yellow, Color::Black),
+            buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
+            ansi_state:AnsiState::Normal,
+            csi_buf: [0; 16],
+            csi_len: 0,
+            cursor_col_pos: 0,
+            cursor_row_pos: 0,
+        };
+        writer.reset();
+        Mutex::new(writer)
+    };
 }
 
 

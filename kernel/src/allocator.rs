@@ -13,7 +13,7 @@ static ALLOCATOR: LockedHeap = LockedHeap::empty();
 // TODO : should it be in one struct with a lock like here or in two different mutexes ?
 pub struct MemoryManager {
     kernel_mapper: OffsetPageTable<'static>,
-    frame_allocator : BootInfoFrameAllocator,
+    pub frame_allocator : BootInfoFrameAllocator,
 }
 
 pub static MEMORY_MANAGER: Once<Mutex<MemoryManager>> = Once::new();
@@ -67,11 +67,11 @@ impl MemoryManager {
     }
 }
 
-fn map_page_inner(mapper : &mut OffsetPageTable<'_>, frame_allocator : &mut BootInfoFrameAllocator, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags,){
+fn map_page_inner(mapper : &mut OffsetPageTable<'_>, frame_allocator : &mut BootInfoFrameAllocator, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<(), MapToError<x86_64::structures::paging::Size4KiB>> {
     let page = Page::containing_address(virt_addr);
     //let phys_frame = frame_allocator.allocate_frame().expect("no frame available");
     unsafe {
-        mapper.map_to(page, phys_frame, flags, frame_allocator).expect("error when mapping page").flush();
+        mapper.map_to(page, phys_frame, flags, frame_allocator).map(|f| f.flush())
     }
 }
 
@@ -88,15 +88,15 @@ pub fn map_page_at(virt_addr: VirtAddr, flags: PageTableFlags){
     mem_manager_lock.map_page_at(virt_addr, flags);
 }
 
-pub fn map_page_at_in(page_table : PhysAddr, virt_addr: VirtAddr, flags: PageTableFlags){
+pub fn map_page_at_in(page_table : PhysAddr, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<(), MapToError<x86_64::structures::paging::Size4KiB>>{
     let mut mem_manager_lock = MEMORY_MANAGER.get().unwrap().lock();
 
     let phys_frame = mem_manager_lock.frame_allocator.allocate_frame().expect("no frame available");
 
-    _map_page_phys_at_in(&mut mem_manager_lock, page_table, phys_frame, virt_addr, flags);
+    _map_page_phys_at_in(&mut mem_manager_lock, page_table, phys_frame, virt_addr, flags)
 }
 
-fn _map_page_phys_at_in(mem_manager_lock : &mut MutexGuard<'_, MemoryManager, spin::Spin>, page_table : PhysAddr, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags) {
+fn _map_page_phys_at_in(mem_manager_lock : &mut MutexGuard<'_, MemoryManager, spin::Spin>, page_table : PhysAddr, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<(), MapToError<x86_64::structures::paging::Size4KiB>> {
     let phys_offset = *PHYSICAL_MEMORY_OFFSET.get().unwrap();
     let page_table_virt = phys_offset + page_table.as_u64();
     let page_table_ptr: *mut PageTable = page_table_virt.as_mut_ptr();
@@ -106,9 +106,9 @@ fn _map_page_phys_at_in(mem_manager_lock : &mut MutexGuard<'_, MemoryManager, sp
     map_page_inner(&mut mapper, &mut mem_manager_lock.frame_allocator, phys_frame, virt_addr, flags)
 }
 
-pub fn map_page_phys_at_in(page_table : PhysAddr, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags){
+pub fn map_page_phys_at_in(page_table : PhysAddr, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<(), MapToError<x86_64::structures::paging::Size4KiB>> {
     let mut mem_manager_lock = MEMORY_MANAGER.get().unwrap().lock();
-    _map_page_phys_at_in(&mut mem_manager_lock, page_table, phys_frame, virt_addr, flags);
+    _map_page_phys_at_in(&mut mem_manager_lock, page_table, phys_frame, virt_addr, flags)
 }
 
 
@@ -120,9 +120,7 @@ pub fn allocate_userspace_level_4_table() -> PhysFrame {
     let physical_memory_offset = *PHYSICAL_MEMORY_OFFSET.get().unwrap();
     
     let current_page_table = unsafe { active_level_4_table() };
-    serial_println!("test");
     let new_table_frame = MEMORY_MANAGER.get().unwrap().lock().frame_allocator.allocate_frame().unwrap();
-    serial_println!("test2");
     let new_table_phys = new_table_frame.start_address();
     let new_table_virt = physical_memory_offset + new_table_phys.as_u64();
     let page_table_ptr: *mut PageTable = new_table_virt.as_mut_ptr();

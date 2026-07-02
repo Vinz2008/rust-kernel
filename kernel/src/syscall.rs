@@ -4,7 +4,7 @@ use alloc::{slice, str};
 use syscall_nbs::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT, SYSCALL_WAIT_PID};
 use x86_64::{VirtAddr, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::get_page_flags_in, elf::load_elf, initrd::initrd_get_file_content, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, Scheduler, SchedulerState, schedule}, serial_println, userspace::{USER_STACK_TOP, switch_to_userspace}, utils::Registers};
+use crate::{allocator::get_page_flags_in, elf::load_elf, initrd::initrd_get_file_content, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{ReadyMode, SCHEDULER, Scheduler, SchedulerState, schedule}, serial_println, userspace::USER_STACK_TOP, utils::Registers};
 
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
@@ -116,8 +116,8 @@ fn syscall_exit(regs : &mut SyscallRegs) -> Option<()> {
         if let Some(parent_pid) = parent_pid {
             let parent = parent_pid.get_process_mut(&mut scheduler_lock.processes);
             if parent.state == SchedulerState::WaitPid(current_process_pid) {
-                parent.state = SchedulerState::Ready;
-                scheduler_lock.runnable_processes.push_back(parent_pid);
+                //parent.state = SchedulerState::Ready(ReadyMode::Kernel);
+                scheduler_lock.make_runnable_kernel(parent_pid);
             }
         }
     }
@@ -175,10 +175,9 @@ fn syscall_print(regs : &mut SyscallRegs) -> Option<()> {
     let message_ptr = regs.get_arg(1) as *const u8;
     
     let message_len = regs.get_arg(2);
-    serial_println!("print syscall: ptr={:#x}, len={}", message_ptr as usize, message_len);
 
     let s = create_str(message_ptr, message_len as usize)?;
-    serial_println!("print s : {}", s);
+
     print!("{}", s);
     Some(())
 }
@@ -195,8 +194,6 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
     // TODO : merge this with the init executing, by having an run_exe function in userspace.rs
     let file_content = initrd_get_file_content(path);
 
-    serial_println!("exec: A");
-
     let new_proc_pid = {
         let new_proc_pid = Process::empty_process();
         let mut scheduler_lock = SCHEDULER.lock();
@@ -208,7 +205,7 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
         let elf = load_elf(file_content, process);
         let entrypoint = elf.ehdr.e_entry as usize;
         new_proc_pid.get_process_mut(&mut scheduler_lock.processes).init_process(entrypoint);
-        scheduler_lock.runnable_processes.push_back(new_proc_pid);
+        scheduler_lock.make_runnable(new_proc_pid);
         new_proc_pid
     };
 
@@ -217,18 +214,32 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
     //switch_to_userspace(entrypoint, USER_STACK_TOP, kernel_stack_top, user_page_table)
 }
 
-fn syscall_get_char(_regs : &mut SyscallRegs) -> Option<u64> {
+fn syscall_get_char(regs : &mut SyscallRegs) -> Option<u64> {
     // TODO : use scheduler for that (BlockedOnKeyboard state) instead of busy wait
     loop {
-        match KEYBOARD_RINGBUF.lock().pop(){
-            Some(c) => return Some(c as u64),
-            None => {}
+        serial_println!("get_char: trying pop");
+        if let Some(c) = KEYBOARD_RINGBUF.lock().pop() {
+            serial_println!("get_char: got {:?}", c);
+            return Some(c as u64) 
         }
+
+        {
+            let mut scheduler_lock = SCHEDULER.lock();
+            let current_pid = scheduler_lock.current_process.unwrap();
+            serial_println!("get_char: current pid {:?}", current_pid);
+            current_pid.get_process_mut(&mut scheduler_lock.processes).state = SchedulerState::WaitKeyboard;
+            scheduler_lock.processes_waiting_keyboard.push_back(current_pid);
+        }
+
+        schedule(regs);
+        serial_println!("get_char: resumed after schedule");
     }
 }
 
 fn syscall_wait_pid(regs : &mut SyscallRegs) -> Option<()> {
     let waited_pid = unsafe { Pid::new_unchecked(regs.get_arg(1) as usize) }?;
+
+    serial_println!("waiting for pid {}", waited_pid.0.get());
     
     {
         let mut scheduler_lock = SCHEDULER.lock();

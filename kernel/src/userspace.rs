@@ -50,6 +50,6 @@ pub fn map_userspace_stack(process : &Process, stack_flags : u32){
     let end_page = Page::<Size4KiB>::containing_address(end);
     let page_table_flags = elf_to_page_permission(stack_flags);
     for page in Page::range_inclusive(start_page, end_page){
-        map_page_at_in(process.page_table_phys.start_address(), page.start_address(),  page_table_flags);
+        map_page_at_in(process.page_table_phys.start_address(), page.start_address(),  page_table_flags).unwrap(); // TODO : should I really unwrap
     }
 }
