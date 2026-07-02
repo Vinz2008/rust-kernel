@@ -1,7 +1,7 @@
 use core::num::NonZero;
 
 use alloc::{collections::vec_deque::VecDeque, vec::Vec};
-use x86_64::{PhysAddr, VirtAddr, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
+use x86_64::{PhysAddr, VirtAddr, instructions::interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
 use crate::{allocator::{allocate_userspace_level_4_table, map_page_at_in, map_page_phys_at_in}, gdt::GDT, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main}, userspace::USER_STACK_TOP, utils::Registers};
 
@@ -72,76 +72,89 @@ impl Process {
 
     pub fn empty_process() -> Pid {
         // TODO : use the dead process pid
-        let mut scheduler_lock = SCHEDULER.lock();
-        let new_process_idx = scheduler_lock.processes.len();
-        let new_process_pid = new_process_idx + 1;
-        let new_process_pid = Pid(NonZero::new(new_process_pid).unwrap());
-        let page_table_phys = allocate_userspace_level_4_table();
+        interrupts::without_interrupts(||{
+            let mut scheduler_lock = SCHEDULER.lock();
+            let new_process_idx = scheduler_lock.processes.len();
+            let new_process_pid = new_process_idx + 1;
+            let new_process_pid = Pid(NonZero::new(new_process_pid).unwrap());
+            let page_table_phys = allocate_userspace_level_4_table();
+            
+            let stack_end = Process::allocate_kernel_stack(new_process_idx, page_table_phys);
+
+            let parent_pid = scheduler_lock.current_process;
+            if let Some(parent_pid) = parent_pid {
+                parent_pid.get_process_mut(&mut scheduler_lock.processes).children.push(new_process_pid);
+            }
+
+            map_page_phys_at_in(page_table_phys.start_address(), PhysFrame::containing_address(PhysAddr::new(0xb8000)), VirtAddr::new(0xb8000), PageTableFlags::PRESENT | PageTableFlags::WRITABLE).unwrap(); // TODO : should I realy unwrap ?
+            scheduler_lock.processes.push(Process { 
+                pid: new_process_pid, 
+                children: Vec::new(),
+                parent: parent_pid,
+                kernel_stack_top: VirtAddr::new(stack_end), 
+                page_table_phys,
+                state: SchedulerState::Loading,
+                process_kind: ProcessKind::User,
+                saved_regs: Registers::default(),
+                kernel_context: KernelContext::default(),
+            });
+
+            new_process_pid
+        })
         
-        let stack_end = Process::allocate_kernel_stack(new_process_idx, page_table_phys);
-
-        let parent_pid = scheduler_lock.current_process;
-        if let Some(parent_pid) = parent_pid {
-            parent_pid.get_process_mut(&mut scheduler_lock.processes).children.push(new_process_pid);
-        }
-
-        map_page_phys_at_in(page_table_phys.start_address(), PhysFrame::containing_address(PhysAddr::new(0xb8000)), VirtAddr::new(0xb8000), PageTableFlags::PRESENT | PageTableFlags::WRITABLE).unwrap(); // TODO : should I realy unwrap ?
-        scheduler_lock.processes.push(Process { 
-            pid: new_process_pid, 
-            children: Vec::new(),
-            parent: parent_pid,
-            kernel_stack_top: VirtAddr::new(stack_end), 
-            page_table_phys,
-            state: SchedulerState::Loading,
-            process_kind: ProcessKind::User,
-            saved_regs: Registers::default(),
-            kernel_context: KernelContext::default(),
-        });
-
-        new_process_pid
     }
 
     pub const IDLE_PROCESS_PID: Pid = unsafe { Pid::new_unchecked(1).unwrap() };
 
     pub fn init_idle_process(){
-        let mut scheduler_lock = SCHEDULER.lock();
-        let new_process_idx = scheduler_lock.processes.len();
-        let new_process_pid = new_process_idx + 1;
-        debug_assert_eq!(new_process_pid, Process::IDLE_PROCESS_PID.0.get());
-        let new_process_pid = Pid(NonZero::new(new_process_pid).unwrap());
+        // TODO : replace the blocks with one lock that can be locked in interrupts as a pattern like this : 
+        // fn with_scheduler<R>(f: impl FnOnce(&mut Scheduler) -> R) -> R {
+        //    interrupts::without_interrupts(|| {
+        //       let mut sched = SCHEDULER.lock();
+        //       f(&mut sched)
+        //    })
+        // }
+        interrupts::without_interrupts(||{
+            let mut scheduler_lock = SCHEDULER.lock();
+            let new_process_idx = scheduler_lock.processes.len();
+            let new_process_pid = new_process_idx + 1;
+            debug_assert_eq!(new_process_pid, Process::IDLE_PROCESS_PID.0.get());
+            let new_process_pid = Pid(NonZero::new(new_process_pid).unwrap());
 
-        let (kernel_page_table, _) = Cr3::read();
+            let (kernel_page_table, _) = Cr3::read();
 
-        let kernel_stack_end = Process::allocate_kernel_stack(new_process_idx, kernel_page_table);
+            let kernel_stack_end = Process::allocate_kernel_stack(new_process_idx, kernel_page_table);
 
-        let entrypoint = idle_main as *const () as usize;
+            let entrypoint = idle_main as *const () as usize;
 
 
-        let saved_regs = Registers::default();
+            let saved_regs = Registers::default();
 
-        let rsp = kernel_stack_end - 8;
-        let ret_adr = rsp as *mut usize;
-        unsafe {
-            *ret_adr = entrypoint;
-        }
+            let rsp = kernel_stack_end - 8;
+            let ret_adr = rsp as *mut usize;
+            unsafe {
+                *ret_adr = entrypoint;
+            }
+            
+
+            let kernel_context = KernelContext {
+                rsp,
+                ..Default::default()
+            };
+
+            scheduler_lock.processes.push(Process { 
+                pid: new_process_pid, 
+                children: Vec::new(),
+                parent: None,
+                kernel_stack_top: VirtAddr::new(kernel_stack_end), 
+                page_table_phys: kernel_page_table,
+                state: SchedulerState::Ready(ReadyMode::Kernel),
+                process_kind: ProcessKind::Kernel,
+                saved_regs,
+                kernel_context,
+            });
+        })
         
-
-        let kernel_context = KernelContext {
-            rsp,
-            ..Default::default()
-        };
-
-        scheduler_lock.processes.push(Process { 
-            pid: new_process_pid, 
-            children: Vec::new(),
-            parent: None,
-            kernel_stack_top: VirtAddr::new(kernel_stack_end), 
-            page_table_phys: kernel_page_table,
-            state: SchedulerState::Ready(ReadyMode::Kernel),
-            process_kind: ProcessKind::Kernel,
-            saved_regs,
-            kernel_context,
-        });
     }
 
     pub fn init_process(&mut self, entrypoint : usize){

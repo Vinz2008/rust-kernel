@@ -167,9 +167,11 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
                         },
                     }*/
                     serial_println!("keyboard: pushing {:?}", c);
-                    KEYBOARD_RINGBUF.lock().push(c);
-                    serial_println!("keyboard: waking waiter");
-                    SCHEDULER.lock().new_char();
+                    interrupts::without_interrupts(|| {
+                        KEYBOARD_RINGBUF.lock().push(c);
+                        serial_println!("keyboard: waking waiter");
+                        SCHEDULER.lock().new_char();
+                    });
                     //print!("{}", c);
                 },
                 DecodedKey::RawKey(key) => {

@@ -1,6 +1,7 @@
 use alloc::{format, slice, vec::Vec};
 use lazy_static::lazy_static;
 use spin::Mutex;
+use x86_64::instructions::interrupts;
 
 use crate::{elf::load_elf, process::Process, scheduler::{SCHEDULER, start_first_process}, serial_println, userspace::{USER_STACK_TOP}};
 
@@ -163,10 +164,10 @@ pub fn load_initrd_init() -> ! {
         //Process::init_idle_process(); // need to do it here after the init pid 1, to have the pid 1 for init and pid 2 for idle process
 
 
-        let elf = {
+        let elf = interrupts::without_interrupts(|| {
             let scheduler_lock = SCHEDULER.lock();
             load_elf(init_content, process_pid.get_process(&scheduler_lock.processes))
-        };
+        });
 
         //let common_data = file.find_common_data().expect("error when getting common data of init elf");
         
@@ -174,11 +175,11 @@ pub fn load_initrd_init() -> ! {
     };
     
 
-    {
+    interrupts::without_interrupts(||{
         let mut scheduler_lock = SCHEDULER.lock();
         let process = process_pid.get_process_mut(&mut scheduler_lock.processes);
         process.init_process(entrypoint as usize);
-    }
+    });
     
     start_first_process(process_pid)
     //switch_to_userspace(entrypoint_fun, USER_STACK_TOP, kernel_stack_top, user_page_table)
