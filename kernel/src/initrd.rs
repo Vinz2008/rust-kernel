@@ -1,10 +1,8 @@
-use core::ops::DerefMut;
-
 use alloc::{format, slice, vec::Vec};
 use lazy_static::lazy_static;
 use spin::Mutex;
 
-use crate::{elf::{get_elf_entrypoint, load_elf}, process::{CURRENT_PROCESS, PROCESSES, Process}, serial_println, userspace::{USER_STACK_TOP, switch_to_userspace}};
+use crate::{elf::load_elf, process::Process, scheduler::{SCHEDULER, start_first_process}, serial_println, userspace::{USER_STACK_TOP, switch_to_userspace}};
 
 #[repr(C)]
 pub struct TarHeader {
@@ -150,7 +148,7 @@ pub fn initrd_get_file_content<'a>(path : &str) -> &'a [u8] {
 }
 
 pub fn load_initrd_init() -> ! {
-    let entrypoint_fun = {
+    let (entrypoint, process_pid) = {
         let tar_initrd = TAR_INITRD.lock();
         for (idx, &file) in tar_initrd.headers.iter().enumerate() {
             serial_println!("file {} {} {}", idx, file.get_filename().unwrap(), file.size().unwrap());
@@ -159,33 +157,28 @@ pub fn load_initrd_init() -> ! {
         let init_content = _initrd_get_file_content(&tar_initrd.headers, "/init");
         
 
-        let process_pid = Process::new_process();
-        *CURRENT_PROCESS.lock().deref_mut() = Some(process_pid);
+        let process_pid = Process::empty_process();
+        //*CURRENT_PROCESS.lock().deref_mut() = Some(process_pid);
 
 
-        let file = {
-            let processes = PROCESSES.lock();
-            load_elf(init_content, process_pid.get_process(&processes))
+        let elf = {
+            let scheduler_lock = SCHEDULER.lock();
+            load_elf(init_content, process_pid.get_process(&scheduler_lock.processes))
         };
 
         //let common_data = file.find_common_data().expect("error when getting common data of init elf");
         
-        get_elf_entrypoint(&file)
-    };
-
-    let (kernel_stack_top, user_page_table) = {
-        let processes_lock = PROCESSES.lock();
-        let process = processes_lock.get(CURRENT_PROCESS.lock().unwrap().0.get()-1).unwrap();
-        fn read_rsp() -> u64 {
-            let rsp: u64;
-            unsafe { core::arch::asm!("mov {}, rsp", out(reg) rsp) };
-            rsp
-        }
-        serial_println!("before cr3 rsp={:#x}", read_rsp());
-        serial_println!("new cr3={:?}", process.page_table_phys);
-        //unsafe { Cr3::write(process.page_table_phys, Cr3Flags::empty()) };
-        (process.kernel_stack_top, process.page_table_phys)
+        (elf.ehdr.e_entry, process_pid)
     };
     
-    switch_to_userspace(entrypoint_fun, USER_STACK_TOP, kernel_stack_top, user_page_table)
+
+    {
+        let mut scheduler_lock = SCHEDULER.lock();
+        let process = process_pid.get_process_mut(&mut scheduler_lock.processes);
+        process.init_process(entrypoint as usize);
+        scheduler_lock.runnable_processes.push_back(process_pid);
+    }
+    
+    start_first_process(process_pid)
+    //switch_to_userspace(entrypoint_fun, USER_STACK_TOP, kernel_stack_top, user_page_table)
 }

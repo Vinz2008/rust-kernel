@@ -59,10 +59,10 @@ pub fn syscall_print(message : &str){
     }
 }
 
-pub fn syscall_exec(path : &str){
+pub fn syscall_exec(path : &str) -> u64 {
     let (path_ptr, path_len) = str_to_ptr_and_len(path);
     unsafe {
-        syscall2(SYSCALL_EXEC, path_ptr, path_len);
+        syscall2(SYSCALL_EXEC, path_ptr, path_len)
     }
 }
 

@@ -6,9 +6,10 @@ use rt::syscall::{syscall_exec, syscall_print};
 // for now, not special function, just normal function (need to make the _start function when porting the std, TODO)
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main() -> i32 {
-    syscall_print("init start");
+    syscall_print("init start\n");
 
-    syscall_exec("/cli");
+    let pid = syscall_exec("/cli");
+    syscall_wait_pid(pid);
     
     0
 }

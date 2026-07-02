@@ -1,10 +1,10 @@
-use core::{arch::naked_asm, ops::DerefMut};
+use core::{arch::naked_asm, ops::{Deref, DerefMut}};
 
 use alloc::{slice, str};
-use syscall_nbs::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT};
+use syscall_nbs::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT, SYSCALL_WAIT_PID};
 use x86_64::{VirtAddr, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::get_page_flags_in, elf::{get_elf_entrypoint, load_elf}, initrd::initrd_get_file_content, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, println, process::{CURRENT_PROCESS, PROCESSES, Process}, serial_println, userspace::{USER_STACK_TOP, switch_to_userspace}};
+use crate::{allocator::get_page_flags_in, elf::load_elf, initrd::initrd_get_file_content, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, Scheduler, SchedulerState, schedule}, serial_println, userspace::{USER_STACK_TOP, switch_to_userspace}, utils::Registers};
 
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
@@ -25,6 +25,8 @@ pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
         push r13
         push r14
         push r15
+
+        cld
 
         mov rdi, rsp # put in rdi the stack pointer to have as arg the reg struct
         call {handler}
@@ -51,27 +53,24 @@ pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
     )
 }
 
-#[repr(C)]
-pub struct SyscallRegs {
-    pub r15: u64,
-    pub r14: u64,
-    pub r13: u64,
-    pub r12: u64,
-    pub r11: u64,
-    pub r10: u64,
-    pub r9: u64,
-    pub r8: u64,
-    pub rbp: u64,
-    pub rdi: u64,
-    pub rsi: u64,
-    pub rdx: u64,
-    pub rcx: u64,
-    pub rbx: u64,
-    pub rax: u64,
+#[repr(transparent)]
+struct SyscallRegs(Registers);
+
+impl Deref for SyscallRegs {
+    type Target = Registers;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SyscallRegs {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
 
 impl SyscallRegs {
-
     fn get_arg(&self, nb : u8) -> u64 {
         match nb {
             1 => self.rdi,
@@ -89,22 +88,43 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
     let sycall_nb = regs.rax;
     //serial_println!("syscall rax number : {}", sycall_nb);
     let ret = match sycall_nb {
-        SYSCALL_EXIT => syscall_exit(regs),
-        SYSCALL_PRINT => syscall_print(regs).map(|_| 0).unwrap_or(u64::MAX), // TODO : change these syscalls ?
-        SYSCALL_EXEC => syscall_exec(regs).map(|_| 0).unwrap_or(u64::MAX),
-        SYSCALL_GET_CHAR => syscall_get_char(regs).map(|c| c as u64).unwrap_or(u64::MAX),
-        _ => u64::MAX,
-    };
+        SYSCALL_EXIT => syscall_exit(regs).map(|_| 0 as u64),
+        SYSCALL_PRINT => syscall_print(regs).map(|_| 0 as u64), // TODO : change these syscalls ?
+        SYSCALL_EXEC => syscall_exec(regs),
+        SYSCALL_GET_CHAR => syscall_get_char(regs),
+        SYSCALL_WAIT_PID => syscall_wait_pid(regs).map(|_| 0),
+        _ => None,
+    }.unwrap_or(u64::MAX);
     regs.rax = ret;
 }
 
-fn syscall_exit(regs : &mut SyscallRegs) -> u64 {
-    let current_process_pid = *CURRENT_PROCESS.lock();
+fn syscall_exit(regs : &mut SyscallRegs) -> Option<()> {
+    let current_process_pid = SCHEDULER.lock().current_process.unwrap();
     serial_println!("current_process_pid : {:?}", current_process_pid);
-    if current_process_pid.is_some_and(|pid| pid.0.get() == 1){
+    if current_process_pid.0.get() == 1 {
         panic!("tried to exit init");
     }
-    todo!()
+
+    let exit_code = regs.get_arg(1);
+    {
+        let mut scheduler_lock = SCHEDULER.lock();
+        let current_proc = current_process_pid.get_process_mut(&mut scheduler_lock.processes);
+        current_proc.state = SchedulerState::Zombie(exit_code as i32);
+
+        let parent_pid = current_process_pid.get_process(&scheduler_lock.processes).parent;
+        
+        if let Some(parent_pid) = parent_pid {
+            let parent = parent_pid.get_process_mut(&mut scheduler_lock.processes);
+            if parent.state == SchedulerState::WaitPid(current_process_pid) {
+                parent.state = SchedulerState::Ready;
+                scheduler_lock.runnable_processes.push_back(parent_pid);
+            }
+        }
+    }
+    
+    
+    schedule(regs);
+    Some(())
 }
 
 
@@ -159,11 +179,11 @@ fn syscall_print(regs : &mut SyscallRegs) -> Option<()> {
 
     let s = create_str(message_ptr, message_len as usize)?;
     serial_println!("print s : {}", s);
-    println!("{}", s);
+    print!("{}", s);
     Some(())
 }
 
-fn syscall_exec(regs : &mut SyscallRegs) -> Option<()> {
+fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
     serial_println!("start exe");
     
     let path_ptr = regs.get_arg(1) as *const u8;
@@ -177,23 +197,59 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<()> {
 
     serial_println!("exec: A");
 
-    let (entrypoint, kernel_stack_top, user_page_table) = {
-        let new_proc_pid = Process::new_process();
-        let processes_lock = PROCESSES.lock();
-        let process = new_proc_pid.get_process(&processes_lock);
+    let new_proc_pid = {
+        let new_proc_pid = Process::empty_process();
+        let mut scheduler_lock = SCHEDULER.lock();
+        let process = new_proc_pid.get_process(&scheduler_lock.processes);
 
         //unsafe { Cr3::write(process.page_table_phys, Cr3Flags::empty()) };
-        *CURRENT_PROCESS.lock().deref_mut() = Some(new_proc_pid);
+        //*CURRENT_PROCESS.lock().deref_mut() = Some(new_proc_pid);
 
         let elf = load_elf(file_content, process);
-        let entrypoint = get_elf_entrypoint(&elf);
-        (entrypoint, process.kernel_stack_top, process.page_table_phys)
+        let entrypoint = elf.ehdr.e_entry as usize;
+        new_proc_pid.get_process_mut(&mut scheduler_lock.processes).init_process(entrypoint);
+        scheduler_lock.runnable_processes.push_back(new_proc_pid);
+        new_proc_pid
     };
 
-    // TODO : don't switch to it, just add it to the scheduler
-    switch_to_userspace(entrypoint, USER_STACK_TOP, kernel_stack_top, user_page_table)
+    Some(new_proc_pid.0.get() as u64)
+
+    //switch_to_userspace(entrypoint, USER_STACK_TOP, kernel_stack_top, user_page_table)
 }
 
-fn syscall_get_char(_regs : &mut SyscallRegs) -> Option<char> {
-    KEYBOARD_RINGBUF.lock().pop()
+fn syscall_get_char(_regs : &mut SyscallRegs) -> Option<u64> {
+    // TODO : use scheduler for that (BlockedOnKeyboard state) instead of busy wait
+    loop {
+        match KEYBOARD_RINGBUF.lock().pop(){
+            Some(c) => return Some(c as u64),
+            None => {}
+        }
+    }
+}
+
+fn syscall_wait_pid(regs : &mut SyscallRegs) -> Option<()> {
+    let waited_pid = unsafe { Pid::new_unchecked(regs.get_arg(1) as usize) }?;
+    
+    {
+        let mut scheduler_lock = SCHEDULER.lock();
+        let current_pid = scheduler_lock.current_process.unwrap();
+
+        if !current_pid.get_process(&scheduler_lock.processes).children.contains(&waited_pid) {
+            // not a children
+            return None;
+        }
+
+        if let SchedulerState::Zombie(exit_code) = waited_pid.get_process(&scheduler_lock.processes).state {
+            regs.rax = exit_code as u64;
+            waited_pid.get_process_mut(&mut scheduler_lock.processes).state = SchedulerState::Dead;
+            current_pid.get_process_mut(&mut scheduler_lock.processes).children.retain(|&pid| pid != waited_pid); 
+            return Some(());
+        }
+
+        current_pid.get_process_mut(&mut scheduler_lock.processes).state = SchedulerState::WaitPid(waited_pid);
+    }
+
+    schedule(regs);
+
+    Some(())
 }

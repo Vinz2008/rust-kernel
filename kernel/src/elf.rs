@@ -67,9 +67,3 @@ pub fn load_elf<'a>(content : &'a [u8], process : &Process) -> ElfBytes<'a, AnyE
     
     file
 }
-
-pub fn get_elf_entrypoint(elf : &ElfBytes<'_, AnyEndian>) -> EntryPointFun {
-    let entrypoint_virt_address = elf.ehdr.e_entry as usize;
-    let entrypoint_fun : EntryPointFun = unsafe { core::mem::transmute(entrypoint_virt_address) };
-    entrypoint_fun
-}

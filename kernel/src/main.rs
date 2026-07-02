@@ -44,6 +44,7 @@ mod elf;
 mod syscall;
 
 mod process;
+mod scheduler;
 
 mod userspace;
 

@@ -1,10 +1,10 @@
-use core::fmt::Write;
+use core::{arch::naked_asm, fmt::Write, sync::atomic::{AtomicU64, Ordering}};
 
 use pc_keyboard::{DecodedKey, HandleControl, KeyCode, PS2Keyboard, ScancodeSet1, layouts};
 use spin::Mutex;
 use x86_64::{PrivilegeLevel, VirtAddr, instructions::{interrupts, port::Port}, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
-use crate::{backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, print, println, ringbuf::RingBuf, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::hlt_loop};
+use crate::{backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, print, println, ringbuf::RingBuf, scheduler::schedule, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -22,7 +22,9 @@ lazy_static! {
             idt.double_fault.set_handler_fn(double_fault_handler).set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
         }
         idt.page_fault.set_handler_fn(page_fault_handler);
-        idt[InterruptIndex::Timer as u8].set_handler_fn(timer_interrupt_handler);
+        unsafe {
+            idt[InterruptIndex::Timer as u8].set_handler_addr(VirtAddr::new(timer_interrupt_stub as *const () as u64));
+        }
         idt[InterruptIndex::Keyboard as u8].set_handler_fn(keyboard_interrupt_handler);
 
         // TODO : add also syscall instruction support
@@ -61,13 +63,68 @@ extern "x86-interrupt" fn page_fault_handler(stack_frame: InterruptStackFrame, e
 }
 
 
-extern "x86-interrupt" fn timer_interrupt_handler(
-    _stack_frame: InterruptStackFrame)
-{
+#[unsafe(naked)]
+pub unsafe extern "C" fn timer_interrupt_stub() -> ! {
+    naked_asm!(
+        "
+        push rax
+        push rbx
+        push rcx
+        push rdx
+        push rsi
+        push rdi
+        push rbp
+        push r8
+        push r9
+        push r10
+        push r11
+        push r12
+        push r13
+        push r14
+        push r15
+
+        cld
+
+        mov rdi, rsp # put in rdi the stack pointer to have as arg the reg struct
+        call {handler}
+
+        pop r15
+        pop r14
+        pop r13
+        pop r12
+        pop r11
+        pop r10
+        pop r9
+        pop r8
+        pop rbp
+        pop rdi
+        pop rsi
+        pop rdx
+        pop rcx
+        pop rbx
+        pop rax
+
+        iretq
+        ",
+        handler = sym timer_interrupt_handler,
+    )
+}
+
+static TICKS: AtomicU64 = AtomicU64::new(0);
+const TICKS_EACH_SCHEDULE: u64 = 10; // TODO : reprogram pic to 100 Hz
+
+fn timer_interrupt_handler(regs : &mut Registers){
     //print!(".");
     unsafe {
         PICS.lock()
             .notify_end_of_interrupt(InterruptIndex::Timer as u8);
+    }
+
+    let tick = TICKS.fetch_add(1, Ordering::Relaxed);
+
+    if tick % TICKS_EACH_SCHEDULE == 0 && regs.cs & 0b11 == 3 {
+        // timer in user code
+        schedule(regs);
     }
 }
 
@@ -82,6 +139,7 @@ lazy_static! {
 const DELETE: char = '\u{007f}';
 const BACKSPACE: char = '\u{0008}';
 
+// TODO : should I replace the ringbuf with a VecDeque (that would remove the size limit but would allocate dynamic memory)
 pub static KEYBOARD_RINGBUF : Mutex<RingBuf<char, 512>> = Mutex::new(RingBuf::new());
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
