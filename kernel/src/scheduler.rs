@@ -2,7 +2,7 @@ use core::arch::naked_asm;
 
 use alloc::{collections::vec_deque::VecDeque, vec::Vec};
 use spin::Mutex;
-use x86_64::{instructions::interrupts, registers::control::{Cr3, Cr3Flags}};
+use x86_64::{instructions::interrupts::{self, without_interrupts}, registers::control::{Cr3, Cr3Flags}};
 
 use crate::{gdt::set_tss_privilege_stack, process::{Pid, Process}, serial_println, utils::Registers};
 
@@ -67,16 +67,17 @@ pub static SCHEDULER : Mutex<Scheduler> = {
 pub fn start_first_process(pid : Pid) -> ! {
     serial_println!("start first process");
     
-    let (page_table_phys, kernel_stack_top, regs) = {
-        interrupts::without_interrupts(||{
-            let mut scheduler_lock = SCHEDULER.lock();
-            scheduler_lock.current_process = Some(pid);
+    let (page_table_phys, kernel_stack_top, regs) = { 
+        let mut scheduler_lock = SCHEDULER.lock();
+        scheduler_lock.current_process = Some(pid);
 
-            let process = pid.get_process(&scheduler_lock.processes);
-            set_tss_privilege_stack(process.kernel_stack_top);
-            (process.page_table_phys, process.kernel_stack_top, process.saved_regs)
-        })
+        let process = pid.get_process(&scheduler_lock.processes);
+        set_tss_privilege_stack(process.kernel_stack_top);
+        (process.page_table_phys, process.kernel_stack_top, process.saved_regs)
+        
     };
+
+    x86_64::instructions::interrupts::enable();
     
     unsafe {
         Cr3::write(page_table_phys, Cr3Flags::empty());
@@ -143,32 +144,31 @@ pub unsafe extern "C" fn switch_context(_old: *mut KernelContext, _new: *const K
 
 // call only if one process is already running
 pub fn schedule(regs : &mut Registers){
-    interrupts::without_interrupts(||{
-        let mut scheduler_lock = SCHEDULER.lock();
+    let kernel_switch = with_scheduler_no_int(|scheduler|{
 
-        if let Some(current) = scheduler_lock.current_process {
+        if let Some(current) = scheduler.current_process {
             serial_println!("current process before assert : {:?}", current);
-            assert!(!scheduler_lock.runnable_processes.contains(&current), "current process is also in runnable queue");
+            assert!(!scheduler.runnable_processes.contains(&current), "current process is also in runnable queue");
         }
 
-        serial_println!("runnable processes at start of schedule : {:?}", &scheduler_lock.runnable_processes);
+        serial_println!("runnable processes at start of schedule : {:?}", &scheduler.runnable_processes);
 
-        let current_pid = scheduler_lock.current_process.unwrap();
-        current_pid.get_process_mut(&mut scheduler_lock.processes).saved_regs = *regs;
+        let current_pid = scheduler.current_process.unwrap();
+        current_pid.get_process_mut(&mut scheduler.processes).saved_regs = *regs;
         
-        let current_is_ready = matches!(current_pid.get_process(&scheduler_lock.processes).state, SchedulerState::Ready(_));
+        let current_is_ready = matches!(current_pid.get_process(&scheduler.processes).state, SchedulerState::Ready(_));
 
-        let next = match scheduler_lock.runnable_processes.pop_front(){
+        let next = match scheduler.runnable_processes.pop_front(){
             Some(next) => {
                 if current_is_ready && current_pid != next {
                     serial_println!("adding to ready process pid {}", current_pid.0.get());
-                    scheduler_lock.make_runnable(current_pid);
+                    scheduler.make_runnable(current_pid);
                 }
                 next
             },
             None => {
                 if current_is_ready {
-                    return; // continue with this process
+                    return None; // continue with this process
                 } else {
                     Process::IDLE_PROCESS_PID
                 }
@@ -177,30 +177,33 @@ pub fn schedule(regs : &mut Registers){
         };
         serial_println!("scheduling to pid {}", next.0.get());
 
-        scheduler_lock.current_process = Some(next);
+        scheduler.current_process = Some(next);
 
 
         unsafe {
-            Cr3::write(next.get_process(&scheduler_lock.processes).page_table_phys, Cr3Flags::empty());
+            Cr3::write(next.get_process(&scheduler.processes).page_table_phys, Cr3Flags::empty());
         }
-        set_tss_privilege_stack(next.get_process(&scheduler_lock.processes).kernel_stack_top);
+        set_tss_privilege_stack(next.get_process(&scheduler.processes).kernel_stack_top);
         
-        match next.get_process(&scheduler_lock.processes).state {
+        match next.get_process(&scheduler.processes).state {
             SchedulerState::Ready(ReadyMode::User) => {
-                *regs = next.get_process(&scheduler_lock.processes).saved_regs;
+                *regs = next.get_process(&scheduler.processes).saved_regs;
+                None
             },
             SchedulerState::Ready(ReadyMode::Kernel) => {
                 // TODO : make it safer (the vec could be reallocated between creating the ptr and switching the context)
-                let old_ctx = &mut current_pid.get_process_mut(&mut scheduler_lock.processes).kernel_context as *mut KernelContext;
-                let new_ctx = &next.get_process_mut(&mut scheduler_lock.processes).kernel_context as *const KernelContext;
-                drop(scheduler_lock);
-                unsafe {
-                    switch_context(old_ctx, new_ctx);
-                }
+                let old_ctx = &mut current_pid.get_process_mut(&mut scheduler.processes).kernel_context as *mut KernelContext;
+                let new_ctx = &next.get_process_mut(&mut scheduler.processes).kernel_context as *const KernelContext;
+                Some((old_ctx, new_ctx))
             },
             _ => panic!("scheduled non-ready process {:?}", next),
         }
-    })    
+    });
+    if let Some((old_ctx, new_ctx)) = kernel_switch {
+        unsafe {
+            switch_context(old_ctx, new_ctx);
+        }
+    }
 }
 
 pub extern "C" fn idle_main(){
@@ -213,43 +216,53 @@ pub extern "C" fn idle_main(){
 // TODO : make this more elegant, like linux, not have to have to enter_user_from_kernel
 
 fn idle_schedule(){
-    interrupts::without_interrupts(||{
-        let mut scheduler_lock = SCHEDULER.lock();
-
-        let next_pid = match scheduler_lock.runnable_processes.pop_front() {
+    enum Decision {
+        SwitchUser(Registers),
+        SwitchKernel {
+            old_ctx : *mut KernelContext,
+            new_ctx : *const KernelContext,
+        }
+    }
+    let decision = with_scheduler_no_int(|scheduler|{
+        let next_pid = match scheduler.runnable_processes.pop_front() {
             Some(next_pid) => next_pid,
-            None => return,
+            None => return None,
         };
             
 
-        let current_pid = scheduler_lock.current_process.unwrap();
+        let current_pid = scheduler.current_process.unwrap();
 
-        scheduler_lock.current_process = Some(next_pid);
+        scheduler.current_process = Some(next_pid);
         
         unsafe {
-            Cr3::write(next_pid.get_process(&scheduler_lock.processes).page_table_phys, Cr3Flags::empty());
+            Cr3::write(next_pid.get_process(&scheduler.processes).page_table_phys, Cr3Flags::empty());
         }
-        set_tss_privilege_stack(next_pid.get_process(&scheduler_lock.processes).kernel_stack_top);
+        set_tss_privilege_stack(next_pid.get_process(&scheduler.processes).kernel_stack_top);
 
-        match next_pid.get_process(&scheduler_lock.processes).state {
+        let decision = match next_pid.get_process(&scheduler.processes).state {
             SchedulerState::Ready(ReadyMode::User) => {
-                let next_regs = next_pid.get_process(&scheduler_lock.processes).saved_regs;
-                drop(scheduler_lock);
-                unsafe {
-                    enter_user_from_kernel(&next_regs as *const Registers)
-                }
+                let next_regs = next_pid.get_process(&scheduler.processes).saved_regs;
+                Decision::SwitchUser(next_regs)
             }
             SchedulerState::Ready(ReadyMode::Kernel) => {
-                let old_ctx = &mut current_pid.get_process_mut(&mut scheduler_lock.processes).kernel_context as *mut KernelContext;
-                let new_ctx = &next_pid.get_process(&scheduler_lock.processes).kernel_context as *const KernelContext;
-                drop(scheduler_lock);
-                unsafe  {
-                    switch_context(old_ctx, new_ctx);
-                }
+                let old_ctx = &mut current_pid.get_process_mut(&mut scheduler.processes).kernel_context as *mut KernelContext;
+                let new_ctx = &next_pid.get_process(&scheduler.processes).kernel_context as *const KernelContext;
+                Decision::SwitchKernel { old_ctx, new_ctx }
             }
             _ => panic!("idle scheduled non-ready process {:?}", next_pid),
+        };
+        Some(decision)
+    });
+    if let Some(decision) = decision {
+        match decision {
+            Decision::SwitchUser(next_regs) => unsafe {
+                enter_user_from_kernel(&next_regs as *const Registers)
+            }
+            Decision::SwitchKernel { old_ctx, new_ctx } => unsafe {
+                switch_context(old_ctx, new_ctx);
+            }
         }
-    })
+    }
 }
 
 #[unsafe(naked)]
@@ -290,4 +303,11 @@ pub unsafe extern "C" fn enter_user_from_kernel(_regs: *const Registers) -> ! {
         iretq
         "
     );
+}
+
+pub fn with_scheduler_no_int<R>(f : impl FnOnce(&mut Scheduler) -> R) -> R {
+    without_interrupts(||{
+        let mut scheduler_lock = SCHEDULER.lock();
+        f(&mut scheduler_lock)
+    })
 }

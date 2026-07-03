@@ -69,8 +69,6 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     unsafe { pic::PICS.lock().initialize() };
 
-    x86_64::instructions::interrupts::enable();
-
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
 
     let mapper = unsafe { paging::init(phys_mem_offset) };
@@ -81,10 +79,6 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     Process::init_idle_process();
 
     load_initrd_init();
-    
-    /*cli::init_cli();
-
-    serial_println!("test");*/
 
     hlt_loop();
 }

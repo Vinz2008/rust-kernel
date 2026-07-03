@@ -2,9 +2,9 @@ use core::{arch::naked_asm, fmt::Write, sync::atomic::{AtomicU64, Ordering}};
 
 use pc_keyboard::{DecodedKey, HandleControl, KeyCode, PS2Keyboard, ScancodeSet1, layouts};
 use spin::Mutex;
-use x86_64::{PrivilegeLevel, VirtAddr, instructions::{interrupts, port::Port}, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
+use x86_64::{PrivilegeLevel, VirtAddr, instructions::port::Port, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
-use crate::{backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, println, ringbuf::RingBuf, scheduler::{SCHEDULER, schedule}, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
+use crate::{backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, ringbuf::RingBuf, scheduler::{SCHEDULER, schedule}, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -29,7 +29,7 @@ lazy_static! {
 
         // TODO : add also syscall instruction support
         unsafe {
-            idt[InterruptIndex::Syscall as u8].set_handler_addr(VirtAddr::new(syscall_interrupt_stub as *const () as u64)).set_privilege_level(PrivilegeLevel::Ring3);
+            idt[InterruptIndex::Syscall as u8].set_handler_addr(VirtAddr::new(syscall_interrupt_stub as *const () as u64)).set_privilege_level(PrivilegeLevel::Ring3).disable_interrupts(false);
         }
 
         idt
@@ -42,7 +42,10 @@ pub fn init_idt() {
 
 extern "x86-interrupt" fn breakpoint_handler(stack_frame: InterruptStackFrame)
 {
-    println!("EXCEPTION: BREAKPOINT\n{:#?}", stack_frame);
+    if let Some(mut writer_lock) = WRITER.try_lock(){
+        let _ = writeln!(writer_lock, "EXCEPTION: BREAKPOINT\n{:#?}", stack_frame);
+    }
+    hlt_loop();
 }
 
 extern "x86-interrupt" fn double_fault_handler(stack_frame: InterruptStackFrame, _error_code: u64) -> !
@@ -51,13 +54,15 @@ extern "x86-interrupt" fn double_fault_handler(stack_frame: InterruptStackFrame,
 }
 
 extern "x86-interrupt" fn page_fault_handler(stack_frame: InterruptStackFrame, error_code: PageFaultErrorCode){
-    println!("EXCEPTION: PAGE FAULT");
-    println!("Accessed Address: {:?}", Cr2::read());
-    println!("Error Code: {:?}", error_code);
-    println!("{:#?}", stack_frame);
+    if let Some(mut writer_lock) = WRITER.try_lock(){
+        let _ = writeln!(writer_lock, "EXCEPTION: PAGE FAULT");
+        let _ = writeln!(writer_lock, "Accessed Address: {:?}", Cr2::read());
+        let _ = writeln!(writer_lock, "Error Code: {:?}", error_code);
+        let _ = writeln!(writer_lock, "{:#?}", stack_frame);
+    }
     if let Some(mut serial_lock) = SERIAL1.try_lock() {
         let backtrace = Backtrace::new();
-        interrupts::without_interrupts(|| serial_lock.write_fmt(format_args!("backtrace page fault {}", backtrace)).unwrap());
+        serial_lock.write_fmt(format_args!("backtrace page fault {}", backtrace)).unwrap();
     }
     hlt_loop();
 }
@@ -167,11 +172,10 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
                         },
                     }*/
                     serial_println!("keyboard: pushing {:?}", c);
-                    interrupts::without_interrupts(|| {
-                        KEYBOARD_RINGBUF.lock().push(c);
-                        serial_println!("keyboard: waking waiter");
-                        SCHEDULER.lock().new_char();
-                    });
+                    
+                    KEYBOARD_RINGBUF.lock().push(c);
+                    serial_println!("keyboard: waking waiter");
+                    SCHEDULER.lock().new_char();
                     //print!("{}", c);
                 },
                 DecodedKey::RawKey(key) => {

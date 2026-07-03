@@ -4,7 +4,7 @@ use alloc::{slice, str};
 use syscall_nbs::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT, SYSCALL_WAIT_PID};
 use x86_64::{VirtAddr, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::get_page_flags_in, elf::load_elf, initrd::initrd_get_file_content, interrupts::{KEYBOARD_RINGBUF}, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, schedule}, serial_println, utils::Registers};
+use crate::{allocator::get_page_flags_in, elf::load_elf, initrd::initrd_get_file_content, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
@@ -100,25 +100,24 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
 
 fn syscall_exit(regs : &mut SyscallRegs) -> Option<()> {
     
-    interrupts::without_interrupts(||{
-        let mut scheduler_lock = SCHEDULER.lock();
-        let current_process_pid = scheduler_lock.current_process.unwrap();
+    with_scheduler_no_int(|scheduler|{
+        let current_process_pid = scheduler.current_process.unwrap();
         serial_println!("current_process_pid : {:?}", current_process_pid);
         if current_process_pid.0.get() == 1 {
             panic!("tried to exit init");
         }
         let exit_code = regs.get_arg(1);
         
-        let current_proc = current_process_pid.get_process_mut(&mut scheduler_lock.processes);
+        let current_proc = current_process_pid.get_process_mut(&mut scheduler.processes);
         current_proc.state = SchedulerState::Zombie(exit_code as i32);
 
-        let parent_pid = current_process_pid.get_process(&scheduler_lock.processes).parent;
+        let parent_pid = current_process_pid.get_process(&scheduler.processes).parent;
         
         if let Some(parent_pid) = parent_pid {
-            let parent = parent_pid.get_process_mut(&mut scheduler_lock.processes);
+            let parent = parent_pid.get_process_mut(&mut scheduler.processes);
             if parent.state == SchedulerState::WaitPid(current_process_pid) {
                 //parent.state = SchedulerState::Ready(ReadyMode::Kernel);
-                scheduler_lock.make_runnable_kernel(parent_pid);
+                scheduler.make_runnable_kernel(parent_pid);
             }
         }
     });
@@ -195,13 +194,10 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
     // TODO : merge this with the init executing, by having an run_exe function in userspace.rs
     let file_content = initrd_get_file_content(path);
 
-    let new_proc_pid = interrupts::without_interrupts(||{
+    let new_proc_pid = interrupts::without_interrupts(|| {
         let new_proc_pid = Process::empty_process();
         let mut scheduler_lock = SCHEDULER.lock();
         let process = new_proc_pid.get_process(&scheduler_lock.processes);
-
-        //unsafe { Cr3::write(process.page_table_phys, Cr3Flags::empty()) };
-        //*CURRENT_PROCESS.lock().deref_mut() = Some(new_proc_pid);
 
         let elf = load_elf(file_content, process);
         let entrypoint = elf.ehdr.e_entry as usize;
@@ -216,27 +212,27 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
 }
 
 fn syscall_get_char(regs : &mut SyscallRegs) -> Option<u64> {
-    // TODO : use scheduler for that (BlockedOnKeyboard state) instead of busy wait
     loop {
-        serial_println!("get_char: trying pop");
-        
-        let c = interrupts::without_interrupts(|| {
-            KEYBOARD_RINGBUF.lock().pop()
-        });
-        if let Some(c) = c {
-            serial_println!("get_char: got {:?}", c);
-            return Some(c as u64) 
-        }
+        let control_flow = interrupts::without_interrupts(|| {
+            serial_println!("get_char: trying pop");
+            let c = KEYBOARD_RINGBUF.lock().pop();
+            if let Some(c) = c {
+                return ControlFlow::Break(c);
+            }
 
-        interrupts::without_interrupts(||{
-            // TODO : add without_interrupts each time the scheduler lock is taken ? (like with the keyboard)
             let mut scheduler_lock = SCHEDULER.lock();
             let current_pid = scheduler_lock.current_process.unwrap();
             serial_println!("get_char: current pid {:?}", current_pid);
             current_pid.get_process_mut(&mut scheduler_lock.processes).state = SchedulerState::WaitKeyboard;
             scheduler_lock.processes_waiting_keyboard.push_back(current_pid);
+            ControlFlow::Continue(())
         });
 
+        if let ControlFlow::Break(c) = control_flow {
+            serial_println!("get_char: got {:?}", c);
+            return Some(c as u64);
+        }
+        
         schedule(regs);
         serial_println!("get_char: resumed after schedule");
     }
@@ -247,24 +243,22 @@ fn syscall_wait_pid(regs : &mut SyscallRegs) -> Option<()> {
 
     serial_println!("waiting for pid {}", waited_pid.0.get());
     
-    // TODO : how could I ad without_interrupts because of the return ?
-    let control_flow = interrupts::without_interrupts(||{
-        let mut scheduler_lock = SCHEDULER.lock();
-        let current_pid = scheduler_lock.current_process.unwrap();
+    let control_flow = with_scheduler_no_int(|scheduler|{
+        let current_pid = scheduler.current_process.unwrap();
 
-        if !current_pid.get_process(&scheduler_lock.processes).children.contains(&waited_pid) {
+        if !current_pid.get_process(&scheduler.processes).children.contains(&waited_pid) {
             // not a children
             return ControlFlow::Break(None);
         }
 
-        if let SchedulerState::Zombie(exit_code) = waited_pid.get_process(&scheduler_lock.processes).state {
+        if let SchedulerState::Zombie(exit_code) = waited_pid.get_process(&scheduler.processes).state {
             regs.rax = exit_code as u64;
-            waited_pid.get_process_mut(&mut scheduler_lock.processes).state = SchedulerState::Dead;
-            current_pid.get_process_mut(&mut scheduler_lock.processes).children.retain(|&pid| pid != waited_pid); 
+            waited_pid.get_process_mut(&mut scheduler.processes).state = SchedulerState::Dead;
+            current_pid.get_process_mut(&mut scheduler.processes).children.retain(|&pid| pid != waited_pid); 
             return ControlFlow::Break(Some(()));
         }
 
-        current_pid.get_process_mut(&mut scheduler_lock.processes).state = SchedulerState::WaitPid(waited_pid);
+        current_pid.get_process_mut(&mut scheduler.processes).state = SchedulerState::WaitPid(waited_pid);
         ControlFlow::Continue(())
     });
 

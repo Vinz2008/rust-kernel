@@ -12,7 +12,7 @@ static ALLOCATOR: LockedHeap = LockedHeap::empty();
 
 // TODO : should it be in one struct with a lock like here or in two different mutexes ?
 pub struct MemoryManager {
-    kernel_mapper: OffsetPageTable<'static>,
+    //kernel_mapper: OffsetPageTable<'static>,
     pub frame_allocator : BootInfoFrameAllocator,
 }
 
@@ -39,7 +39,7 @@ fn init_heap_mapping(mapper: &mut impl Mapper<Size4KiB>, frame_allocator : &mut 
 pub fn init_heap(mut mapper: OffsetPageTable<'static>, mut frame_allocator : BootInfoFrameAllocator) -> Result<(), MapToError<Size4KiB>> {
     init_heap_mapping(&mut mapper, &mut frame_allocator)?;
     MEMORY_MANAGER.call_once(|| Mutex::new(MemoryManager {
-        kernel_mapper: mapper,
+        //kernel_mapper: mapper,
         frame_allocator,
     }));
 
@@ -50,7 +50,7 @@ pub fn init_heap(mut mapper: OffsetPageTable<'static>, mut frame_allocator : Boo
     Ok(())
 }
 
-impl MemoryManager {
+/*impl MemoryManager {
     fn map_page_at(&mut self, virt_addr: VirtAddr, flags: PageTableFlags){
         let page = Page::containing_address(virt_addr);
         let phys_frame = self.frame_allocator.allocate_frame().expect("no frame available");
@@ -65,7 +65,7 @@ impl MemoryManager {
             TranslateResult::NotMapped | TranslateResult::InvalidFrameAddress(_) => None
         }
     }
-}
+}*/
 
 fn map_page_inner(mapper : &mut OffsetPageTable<'_>, frame_allocator : &mut BootInfoFrameAllocator, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<(), MapToError<x86_64::structures::paging::Size4KiB>> {
     let page = Page::containing_address(virt_addr);
@@ -83,10 +83,10 @@ pub fn get_page_flags_in(mapper : &mut OffsetPageTable<'_>, virt_addr: VirtAddr)
 }
 
 // allocate physical frames and map them to the address
-pub fn map_page_at(virt_addr: VirtAddr, flags: PageTableFlags){
+/*pub fn map_page_at(virt_addr: VirtAddr, flags: PageTableFlags){
     let mut mem_manager_lock = MEMORY_MANAGER.get().unwrap().lock();
     mem_manager_lock.map_page_at(virt_addr, flags);
-}
+}*/
 
 pub fn map_page_at_in(page_table : PhysAddr, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<(), MapToError<x86_64::structures::paging::Size4KiB>>{
     let mut mem_manager_lock = MEMORY_MANAGER.get().unwrap().lock();
