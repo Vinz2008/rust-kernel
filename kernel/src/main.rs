@@ -30,6 +30,7 @@ mod qemu;
 mod serial;
 
 mod backtrace;
+mod symbols;
 
 mod interrupts;
 mod pic;
@@ -77,6 +78,8 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     allocator::init_heap(mapper, frame_allocator).expect("heap initialization failed");
     
     Process::init_idle_process();
+
+    panic!();
 
     load_initrd_init();
 

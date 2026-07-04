@@ -10,7 +10,6 @@ pub const KERNEL_HEAP_SIZE: usize = 10 * 1024 * 1024; // 10MB, if needed, increa
 #[global_allocator]
 static ALLOCATOR: LockedHeap = LockedHeap::empty(); 
 
-// TODO : should it be in one struct with a lock like here or in two different mutexes ?
 pub struct MemoryManager {
     //kernel_mapper: OffsetPageTable<'static>,
     pub frame_allocator : BootInfoFrameAllocator,

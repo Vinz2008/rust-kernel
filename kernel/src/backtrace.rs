@@ -1,5 +1,7 @@
 use core::fmt::{self, Display};
 
+use crate::symbols;
+
 // how it is represented in memory in the stack, the last rbp value, which is the previous stack frame pointer, and the return address
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -58,7 +60,12 @@ impl Backtrace {
 impl Display for Backtrace {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         for fun in self.iter() {
-            writeln!(f, "0x{:x} ", fun)?;
+            if let Some((name, offset)) = symbols::lookup_symbol(fun){
+                writeln!(f, "0x{:x}  {}+0x{:x}", fun, name, offset)?;
+            } else {
+                writeln!(f, "0x{:x} ", fun)?;
+            }
+            
         }
         fmt::Result::Ok(())
     }

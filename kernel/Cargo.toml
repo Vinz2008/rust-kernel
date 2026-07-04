@@ -15,7 +15,6 @@ linked_list_allocator = "0.10.6"
 elf = { version = "0.8.0", default-features = false, features = ["alloc", "to_str"] } # TODO : try to remove alloc feature ? and the to_str feature ?
 syscall_nbs = { path = "../syscall_nbs" }
 
-
 [dependencies.lazy_static]
 version = "1.0"
 features = ["spin_no_std"]
