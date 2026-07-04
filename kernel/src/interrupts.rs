@@ -142,7 +142,6 @@ lazy_static! {
 }
 
 const DELETE: char = '\u{007f}';
-const BACKSPACE: char = '\u{0008}';
 
 // TODO : should I replace the ringbuf with a VecDeque (that would remove the size limit but would allocate dynamic memory)
 pub static KEYBOARD_RINGBUF : Mutex<RingBuf<char, 512>> = Mutex::new(RingBuf::new());

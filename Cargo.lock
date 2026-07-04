@@ -32,6 +32,7 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "rt",
+ "shared_consts",
 ]
 
 [[package]]
@@ -99,7 +100,7 @@ dependencies = [
 name = "rt"
 version = "0.1.0"
 dependencies = [
- "syscall_nbs",
+ "shared_consts",
 ]
 
 [[package]]
@@ -113,8 +114,8 @@ dependencies = [
  "linked_list_allocator",
  "pc-keyboard",
  "pic8259",
+ "shared_consts",
  "spin 0.12.0",
- "syscall_nbs",
  "uart_16550",
  "x86_64",
 ]
@@ -130,6 +131,10 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "shared_consts"
+version = "0.1.0"
 
 [[package]]
 name = "spin"
@@ -154,10 +159,6 @@ checksum = "5b9eb1a2f4c41445a3a0ff9abc5221c5fcd28e1f13cd7c0397706f9ac938ddb0"
 dependencies = [
  "lock_api",
 ]
-
-[[package]]
-name = "syscall_nbs"
-version = "0.1.0"
 
 [[package]]
 name = "uart_16550"

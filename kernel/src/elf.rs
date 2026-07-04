@@ -55,21 +55,6 @@ fn load_segment(content: &[u8], process : &Process, prog_header : &ProgramHeader
             }
         }
     }
-                
-    
-    /*let bytes = &content[segment_off..(segment_off + file_size)];
-    let page_table_frame = process.page_table_phys;
-    let phys_frame = unsafe { translate_addr_in(page_table_frame, start) }.unwrap(); // TODO : replace this unwrap with proper error handling ? (can it even fail because I just mapped the pages isn't it ?)
-    let virtual_addr_ptr_of_phys = (PHYSICAL_MEMORY_OFFSET.get().unwrap().as_u64() + phys_frame.as_u64()) as *mut u8;
-    unsafe {
-        ptr::copy_nonoverlapping(bytes.as_ptr(), virtual_addr_ptr_of_phys, file_size);
-    }
-    if file_size < memory_size {
-        // zero the rest
-        unsafe {
-            ptr::write_bytes(virtual_addr_ptr_of_phys.add(file_size), 0, memory_size - file_size);
-        }
-    }*/
 }
 
 pub fn load_elf<'a>(content : &'a [u8], process : &Process) -> ElfBytes<'a, AnyEndian>{

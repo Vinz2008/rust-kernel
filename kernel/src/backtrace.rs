@@ -23,7 +23,6 @@ fn is_rbp_invalid(current_rbp : *const StackFrame) -> bool {
     current_rbp.is_null() || !address.is_multiple_of(core::mem::align_of::<StackFrame>())
 }
 
-// TODO : embed a symbol table in the exe, so it can print backtrace symbol names (enable it with a feature flag to not have too much bloat by default ?)
 impl Iterator for BacktraceIter {
     type Item = usize;
 

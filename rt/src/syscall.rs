@@ -1,6 +1,6 @@
 use core::hint::unreachable_unchecked;
 
-use syscall_nbs::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT, SYSCALL_WAIT_PID};
+use shared_consts::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT, SYSCALL_WAIT_PID};
 
 pub unsafe fn syscall0(syscall_nb : u64) -> u64 {
     let ret : u64;
@@ -52,10 +52,14 @@ fn str_to_ptr_and_len(s : &str) -> (u64, u64) {
     (s.as_ptr() as u64, s.len() as u64)
 }
 
-pub fn syscall_print(message : &str){
+pub fn syscall_print(message : &str) -> Option<()> {
     let (message_ptr, message_len) = str_to_ptr_and_len(message);
     unsafe {
-        syscall2(SYSCALL_PRINT, message_ptr, message_len);
+        let res = syscall2(SYSCALL_PRINT, message_ptr, message_len);
+        if res == u64::MAX {
+            return None;
+        }
+        Some(())
     }
 }
 

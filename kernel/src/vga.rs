@@ -1,5 +1,6 @@
 use core::{fmt, ptr};
 use lazy_static::lazy_static;
+use shared_consts::{BACKSPACE, BACKSPACE_BYTE};
 use spin::Mutex;
 use x86_64::instructions::{interrupts, port::Port};
 
@@ -153,6 +154,7 @@ impl Writer {
             AnsiState::Normal => {
                 match byte {
                     b'\n' => self.new_line(),
+                    BACKSPACE_BYTE => self.delete_char(),
                     0x20..=0x7e => self.write_byte(byte),
                     0x1B => {
                         self.ansi_state = AnsiState::Escape;
@@ -199,7 +201,7 @@ impl Writer {
     fn execute_escape_code(&mut self){
         match &self.csi_buf[..self.csi_len] {
             b"H" => todo!(), // TODO : cursor home, moves the cursor to row 0, col 0
-            b"2J" => self.reset(),
+            b"2J" => self.clear_screen(),
             b"0m" => self.color_code = DEFAULT_COLOR,
             b"30m" => self.color_code.set_foreground(Color::Black),
             b"31m" => self.color_code.set_foreground(Color::Red),
@@ -225,7 +227,25 @@ impl Writer {
 
         self.column_pos = 0;
         self.sync_cursor_to_print_pos();
-    }    
+    }
+
+    fn delete_char(&mut self){
+        if self.row_pos == 0 && self.column_pos == 0 {
+            return;
+        }
+        match self.column_pos.checked_sub(1){
+            Some(new_col) => {
+                self.column_pos = new_col;
+            }
+            None => {
+                self.row_pos -= 1;
+                self.column_pos = 0;
+            }
+        }
+
+        self.buffer.write_char(self.row_pos, self.column_pos, EMPTY_CHAR);
+        self.move_cursor(CursorMove::Left);
+    }
 
     pub fn get_row(&self) -> usize {
         self.row_pos
@@ -287,7 +307,7 @@ impl Writer {
         self.move_cursor_by(cursor_move, 1);
     }
 
-    pub fn reset(&mut self){
+    pub fn clear_screen(&mut self){
         self.buffer.clear();
         self.column_pos = 0;
         self.row_pos = 0;
@@ -315,7 +335,7 @@ lazy_static! {
             cursor_col_pos: 0,
             cursor_row_pos: 0,
         };
-        writer.reset();
+        writer.clear_screen();
         Mutex::new(writer)
     };
 }

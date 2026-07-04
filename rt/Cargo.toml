@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-syscall_nbs = { path = "../syscall_nbs" }
+shared_consts = { path = "../shared_consts" }

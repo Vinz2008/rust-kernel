@@ -19,7 +19,7 @@ impl CliContext {
         let mut argv = self.cli_line.split_ascii_whitespace();
         match argv.next().unwrap() {
             "clear" => {
-                WRITER.lock().reset();
+                WRITER.lock().clear_screen();
             },
             "echo" => {
                 let mut writer_lock = WRITER.lock();

@@ -1,5 +1,5 @@
 [package]
-name = "syscall_nbs"
+name = "shared_consts"
 version = "0.1.0"
 edition = "2024"
 

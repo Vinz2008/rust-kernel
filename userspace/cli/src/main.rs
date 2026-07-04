@@ -2,8 +2,37 @@
 #![no_main]
 
 use arrayvec::ArrayString;
-use rt::{self as _, syscall::{syscall_get_char, syscall_print}};
+use rt::{self as _, print, println, syscall::{syscall_get_char, syscall_print}};
+use shared_consts::BACKSPACE;
 
+
+fn handle_cli(cli : &str){
+    let mut cli_split = cli.split_whitespace();
+    let command_name = cli_split.next();
+    let command_name = match command_name {
+        Some(cmd_name) => cmd_name,
+        None => {
+            println!("empty command");
+            return;
+        }
+    };
+    //println!("command name : {}", command_name);
+    match command_name {
+        "echo" => {
+            let mut first = true;
+            for cli_part in cli_split {
+                if first {
+                    first = false;
+                } else {
+                    print!(" ");
+                }
+                print!("{}", cli_part);
+            }
+            println!();
+        }
+        _ => println!("unknown command : {}", cli),
+    }
+}
 
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main() -> i32 {
@@ -14,18 +43,19 @@ pub extern "Rust" fn main() -> i32 {
         let c = syscall_get_char();
         match c {
             '\n' => {
-                syscall_print("\nentered : ");
-                syscall_print(&cli);
-                syscall_print("\n");
-                syscall_print("> ");
+                //println!("\nentered : {}", &cli);
+                println!();
+                handle_cli(&cli);
+                print!("> ");
                 cli.clear();
             },
+            BACKSPACE => {
+                cli.pop();
+                print!("{}", BACKSPACE);
+            }
             _ => {
                 if let Ok(_) = cli.try_push(c) {
-                    let mut dst = [0; 4];
-                    //syscall_print("\ntest get_char");
-                    syscall_print(c.encode_utf8(&mut dst));
-                    //syscall_print("\n");
+                    print!("{}", c);
                 }
             }
         }

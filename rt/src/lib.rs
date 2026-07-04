@@ -2,6 +2,7 @@
 
 mod panic;
 pub mod syscall;
+pub mod print;
 
 // TODO : allocator
 // TODO : add syscalls in syscall.rs

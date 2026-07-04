@@ -10,7 +10,7 @@ fn panic(info: &PanicInfo) -> ! {
     use x86_64::instructions::interrupts;
     
     if let Some(mut writer_lock) = WRITER.try_lock(){
-        writer_lock.reset();
+        writer_lock.clear_screen();
         let _ = writeln!(writer_lock, "{}", info);
     }
 

@@ -12,7 +12,7 @@ pub struct TarHeader {
     gid : [u8; 8],
     size : [u8; 12],
     mtime : [u8; 12],
-    chksum : [u8; 8],
+    chksum : [u8; 8], // TODO : check chksum ?
     typeflag : [u8; 1],
     linkname : [u8; 100],
     // ustar part
