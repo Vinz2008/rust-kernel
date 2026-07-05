@@ -1,6 +1,4 @@
-use core::str::Split;
-
-use alloc::{format, slice, string::{String, ToString}, vec::Vec};
+use alloc::{slice, string::{String, ToString}, vec::Vec};
 use lazy_static::lazy_static;
 use spin::Mutex;
 
@@ -159,7 +157,7 @@ impl<'a> FileNode<'a> {
     }
 
     fn new_file_with_content(name : String, content : &'a [u8]) -> FileNode<'a> {
-        let content = FileContent::File { content: content };
+        let content = FileContent::File { content };
         FileNode { 
             name,
             content 
@@ -197,7 +195,7 @@ impl<'a> FileNode<'a> {
                 match &mut self.content {
                     FileContent::Directory { children } => {
                         let new_file = FileNode::new_file_with_content(current_part.to_string(), content);
-                        if children.iter().find(|f| &f.name == current_part).is_some() {
+                        if children.iter().find(|f| f.name == current_part).is_some() {
                             panic!("file already exists"); // TODO : better error handling
                         }
                         children.push(new_file);
@@ -238,7 +236,7 @@ impl<'a> FileNode<'a> {
             None => {
                 match &self.content {
                     FileContent::Directory { children } => {
-                        children.iter().find(|f| &f.name == current_part).unwrap() // TODO : better error handling
+                        children.iter().find(|f| f.name == current_part).unwrap() // TODO : better error handling
                     }
                     FileContent::File { .. } => panic!("can't create a file in a file"), // TODO : better error handling
                 }
@@ -249,7 +247,7 @@ impl<'a> FileNode<'a> {
 
     // TODO : get_file_mut
     fn get_file_node(&self, path : &str) -> &FileNode<'a> {
-        if path == "" {
+        if path.is_empty() {
             return self;
         }
 
@@ -279,7 +277,7 @@ impl<'a> FileNode<'a> {
             None => {
                 match &mut self.content {
                     FileContent::Directory { children } => {
-                        children.iter_mut().find(|f| &f.name == current_part).unwrap() // TODO : better error handling
+                        children.iter_mut().find(|f| f.name == current_part).unwrap() // TODO : better error handling
                     }
                     FileContent::File { .. } => panic!("can't create a file in a file"), // TODO : better error handling
                 }
@@ -290,7 +288,7 @@ impl<'a> FileNode<'a> {
 
     // TODO : get_file_mut
     fn get_file_node_mut(&mut self, path : &str) -> &mut FileNode<'a> {
-        if path == "" {
+        if path.is_empty() {
             return self;
         }
 
@@ -305,7 +303,7 @@ impl<'a> FileNode<'a> {
 
     fn get_file_content(&self, path : &str) -> &'a [u8] {
         match &self.get_file_node(path).content {
-            FileContent::File { content } => *content,
+            FileContent::File { content } => content,
             FileContent::Directory { .. } => panic!("can't get file content of dir"),
         }
     }
