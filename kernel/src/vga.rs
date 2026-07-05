@@ -1,6 +1,6 @@
 use core::{fmt, ptr};
 use lazy_static::lazy_static;
-use shared_consts::{BACKSPACE, BACKSPACE_BYTE};
+use shared_consts::BACKSPACE_BYTE;
 use spin::Mutex;
 use x86_64::instructions::{interrupts, port::Port};
 

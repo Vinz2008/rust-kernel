@@ -298,7 +298,7 @@ pub fn kill_current_and_schedule(exit_code : i32) -> ! {
             }
         }
 
-        let next_pid = scheduler.runnable_processes.pop_front().unwrap_or(Process::IDLE_PROCESS_PID);;
+        let next_pid = scheduler.runnable_processes.pop_front().unwrap_or(Process::IDLE_PROCESS_PID);
         schedule_get_switch_target(scheduler, current_pid, next_pid, None)
     });
     schedule_switch_never_return(target)

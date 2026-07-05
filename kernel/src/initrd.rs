@@ -1,4 +1,6 @@
-use alloc::{format, slice, vec::Vec};
+use core::str::Split;
+
+use alloc::{format, slice, string::{String, ToString}, vec::Vec};
 use lazy_static::lazy_static;
 use spin::Mutex;
 
@@ -129,46 +131,244 @@ impl<'a> TarInitrd<'a> {
 
 const INITRD_BYTES : &[u8] = include_bytes!("../initrd.tar");
 
+// TODO : make the children be not owned to be able to duplicate them in the tree ? (do I really need that ?), also would help with ownership by letting easily copy a filenode
+
+enum FileContent<'a> {
+    Directory {
+        children : Vec<FileNode<'a>>,
+    },
+    File {
+        content : &'a [u8], // TODO : replace with vec ? Cow ?
+    }
+}
+
+pub struct FileNode<'a> {
+    name : String,
+    content : FileContent<'a>,
+}
+
+const EMPTY_CONTENT : &[u8] = &[];
+
+impl<'a> FileNode<'a> {
+    fn new_dir(name : String) -> FileNode<'a> {
+        let content = FileContent::Directory { children: Vec::new() };
+        FileNode { 
+            name, 
+            content, 
+        }
+    }
+
+    fn new_file_with_content(name : String, content : &'a [u8]) -> FileNode<'a> {
+        let content = FileContent::File { content: content };
+        FileNode { 
+            name,
+            content 
+        }
+    }
+
+    fn new_file(name : String) -> FileNode<'a> {
+        Self::new_file_with_content(name, EMPTY_CONTENT)
+    }
+
+    fn is_dir(&self) -> bool {
+        matches!(self.content, FileContent::Directory { .. })
+    }
+
+    fn is_file(&self) -> bool {
+        matches!(self.content, FileContent::File { .. })
+    }
+
+    // TODO : support dir
+    fn _create_file_with_content<'b>(&mut self, current_part : &'b str, mut rest_path : impl Iterator<Item = &'b str>, content : &'a [u8]){
+        match rest_path.next() {
+            Some(next_part) => {
+                match &mut self.content {
+                    FileContent::Directory { children } => {
+                        let child = match children.iter_mut().find(|f| f.name == current_part && f.is_dir()) {
+                            Some(c) => c,
+                            None => panic!("couldn't find {}", current_part), // TODO : better error handling
+                        };
+                        child._create_file_with_content(next_part, rest_path, content);
+                    }
+                    FileContent::File { .. } => panic!("expected a dir"), // TODO : replace with good error handling 
+                }
+            }
+            None => {
+                match &mut self.content {
+                    FileContent::Directory { children } => {
+                        let new_file = FileNode::new_file_with_content(current_part.to_string(), content);
+                        if children.iter().find(|f| &f.name == current_part).is_some() {
+                            panic!("file already exists"); // TODO : better error handling
+                        }
+                        children.push(new_file);
+                    }
+                    FileContent::File { .. } => panic!("can't create a file in a file"), // TODO : better error handling
+                }
+            }
+        }
+    }
+
+    fn create_file_with_content(&mut self, path : &str, content : &'a [u8]){
+        let mut split_path = path.split('/').filter(|part| !part.is_empty());
+        let first_part = match split_path.next() {
+            Some(first_part) => first_part,
+            None => panic!("empty path"), // TODO : better error handling
+        };
+        self._create_file_with_content(first_part, split_path, content);
+    }
+
+    fn create_file(&mut self, path : &str){
+        self.create_file_with_content(path, EMPTY_CONTENT);
+    }
+
+    fn _get_file_node<'b>(&self, current_part : &'b str, mut rest_path : impl Iterator<Item = &'b str>) -> &FileNode<'a> {
+        match rest_path.next() {
+            Some(next_part) => {
+                match &self.content {
+                    FileContent::Directory { children } => {
+                        let child = match children.iter().find(|f| f.name == current_part && f.is_dir()) {
+                            Some(c) => c,
+                            None => panic!("couldn't find {}", current_part), // TODO : better error handling
+                        };
+                        child._get_file_node(next_part, rest_path)
+                    }
+                    FileContent::File { .. } => panic!("expected a dir"), // TODO : replace with good error handling 
+                }
+            }
+            None => {
+                match &self.content {
+                    FileContent::Directory { children } => {
+                        children.iter().find(|f| &f.name == current_part).unwrap() // TODO : better error handling
+                    }
+                    FileContent::File { .. } => panic!("can't create a file in a file"), // TODO : better error handling
+                }
+            }
+        }
+    }
+
+
+    // TODO : get_file_mut
+    fn get_file_node(&self, path : &str) -> &FileNode<'a> {
+        if path == "" {
+            return self;
+        }
+
+        let mut split_path = path.split('/').filter(|part| !part.is_empty());
+        let first_part = match split_path.next() {
+            Some(first_part) => first_part,
+            None => panic!("error in path"), // TODO : better error handling
+        };
+
+        self._get_file_node(first_part, split_path)
+    }
+
+    fn _get_file_node_mut<'b>(&mut self, current_part : &'b str, mut rest_path : impl Iterator<Item = &'b str>) -> &mut FileNode<'a> {
+        match rest_path.next() {
+            Some(next_part) => {
+                match &mut self.content {
+                    FileContent::Directory { children } => {
+                        let child = match children.iter_mut().find(|f| f.name == current_part && f.is_dir()) {
+                            Some(c) => c,
+                            None => panic!("couldn't find {}", current_part), // TODO : better error handling
+                        };
+                        child._get_file_node_mut(next_part, rest_path)
+                    }
+                    FileContent::File { .. } => panic!("expected a dir"), // TODO : replace with good error handling 
+                }
+            }
+            None => {
+                match &mut self.content {
+                    FileContent::Directory { children } => {
+                        children.iter_mut().find(|f| &f.name == current_part).unwrap() // TODO : better error handling
+                    }
+                    FileContent::File { .. } => panic!("can't create a file in a file"), // TODO : better error handling
+                }
+            }
+        }
+    }
+
+
+    // TODO : get_file_mut
+    fn get_file_node_mut(&mut self, path : &str) -> &mut FileNode<'a> {
+        if path == "" {
+            return self;
+        }
+
+        let mut split_path = path.split('/').filter(|part| !part.is_empty());
+        let first_part = match split_path.next() {
+            Some(first_part) => first_part,
+            None => panic!("error in path"), // TODO : better error handling
+        };
+
+        self._get_file_node_mut(first_part, split_path)
+    }
+
+    fn get_file_content(&self, path : &str) -> &'a [u8] {
+        match &self.get_file_node(path).content {
+            FileContent::File { content } => *content,
+            FileContent::Directory { .. } => panic!("can't get file content of dir"),
+        }
+    }
+}
+
 lazy_static! {
-    pub static ref TAR_INITRD : Mutex<TarInitrd<'static>> = {
+    /*pub static ref TAR_INITRD : Mutex<TarInitrd<'static>> = {
         let tar_initrd = TarInitrd::new(INITRD_BYTES).expect("invalid tar");
         Mutex::new(tar_initrd)
+    };*/
+
+    pub static ref ROOT_NODE : Mutex<FileNode<'static>> = {
+        let tar_initrd = TarInitrd::new(INITRD_BYTES).expect("invalid tar");
+        let root_node = fs_create_root_node(tar_initrd);
+        Mutex::new(root_node)
     };
 }
 
-fn _initrd_get_file_content<'a>(headers : &[&'a TarHeader], path : &str) -> &'a [u8] {
-    let tar_path = format!(".{}", path);
-    let init_file_header = *headers.iter().find(|e| e.get_filename().unwrap() == tar_path).unwrap();
-    init_file_header.content().unwrap()
+fn fs_create_root_node(tar_initrd : TarInitrd<'static>) -> FileNode<'static> {
+    let mut file_node = FileNode::new_dir("<ROOT NODE>".to_string());
+    for (idx, &file) in tar_initrd.headers.iter().enumerate() {
+        serial_println!("file {} {} {}", idx, file.get_filename().unwrap(), file.size().unwrap());
+    }
+
+    serial_println!("TEST");
+    
+    for (idx, &file) in tar_initrd.headers.iter().enumerate() {
+        serial_println!("file {} {} {}", idx, file.get_filename().unwrap(), file.size().unwrap());
+        let path = &file.get_filename().unwrap()[1..];
+        serial_println!("path : {}", path);
+        if path != "/" {
+            file_node.create_file_with_content(path, file.content().unwrap());
+        }
+    }
+    
+    file_node
 }
 
-pub fn initrd_get_file_content<'a>(path : &str) -> &'a [u8] {
-    let tar_initrd = TAR_INITRD.lock();
-    _initrd_get_file_content(&tar_initrd.headers, path)
+
+pub fn get_file_content<'a>(path : &str) -> &'a [u8] {
+    let root_node = ROOT_NODE.lock();
+    root_node.get_file_content(path)
 }
 
 pub fn load_initrd_init() -> ! {
     let (entrypoint, process_pid) = {
-        let tar_initrd = TAR_INITRD.lock();
+        /*let tar_initrd = TAR_INITRD.lock();
         for (idx, &file) in tar_initrd.headers.iter().enumerate() {
             serial_println!("file {} {} {}", idx, file.get_filename().unwrap(), file.size().unwrap());
-        }
+        }*/
 
-        let init_content = _initrd_get_file_content(&tar_initrd.headers, "/init");
+        let root_node = ROOT_NODE.lock();
+
+        let init_content = root_node.get_file_content("/init");
         
 
         let process_pid = Process::empty_process();
-        //*CURRENT_PROCESS.lock().deref_mut() = Some(process_pid);
-
-        //Process::init_idle_process(); // need to do it here after the init pid 1, to have the pid 1 for init and pid 2 for idle process
 
 
         let elf = {
             let scheduler_lock = SCHEDULER.lock();
             load_elf(init_content, process_pid.get_process(&scheduler_lock.processes))
         };
-
-        //let common_data = file.find_common_data().expect("error when getting common data of init elf");
         
         (elf.ehdr.e_entry, process_pid)
     };
@@ -181,5 +381,4 @@ pub fn load_initrd_init() -> ! {
     };
     
     start_first_process(process_pid)
-    //switch_to_userspace(entrypoint_fun, USER_STACK_TOP, kernel_stack_top, user_page_table)
 }

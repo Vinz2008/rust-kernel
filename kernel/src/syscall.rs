@@ -4,7 +4,7 @@ use alloc::{slice, str};
 use shared_consts::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT, SYSCALL_WAIT_PID};
 use x86_64::{VirtAddr, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::get_page_flags_in, elf::load_elf, initrd::initrd_get_file_content, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::get_page_flags_in, elf::load_elf, initrd::get_file_content, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
@@ -168,7 +168,7 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
     
 
     // TODO : merge this with the init executing, by having an run_exe function in userspace.rs
-    let file_content = initrd_get_file_content(path);
+    let file_content = get_file_content(path);
 
     let new_proc_pid = interrupts::without_interrupts(|| {
         let new_proc_pid = Process::empty_process();
