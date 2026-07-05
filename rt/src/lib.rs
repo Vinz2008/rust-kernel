@@ -5,7 +5,6 @@ pub mod syscall;
 pub mod print;
 
 // TODO : allocator
-// TODO : add syscalls in syscall.rs
 
 unsafe extern "Rust" {
     fn main() -> i32;

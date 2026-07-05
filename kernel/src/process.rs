@@ -105,6 +105,8 @@ impl Process {
 
     pub const IDLE_PROCESS_PID: Pid = unsafe { Pid::new_unchecked(1).unwrap() };
 
+    pub const INIT_PROCESS_PID : Pid = unsafe { Pid::new_unchecked(2).unwrap() };
+
     pub fn init_idle_process(){
         debug_assert!(!interrupts::are_enabled());
         let mut scheduler_lock = SCHEDULER.lock();

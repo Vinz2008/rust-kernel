@@ -4,7 +4,7 @@ use alloc::{slice, str};
 use shared_consts::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT, SYSCALL_WAIT_PID};
 use x86_64::{VirtAddr, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::get_page_flags_in, elf::load_elf, initrd::initrd_get_file_content, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::get_page_flags_in, elf::load_elf, initrd::initrd_get_file_content, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
@@ -88,7 +88,7 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
     let sycall_nb = regs.rax;
     //serial_println!("syscall rax number : {}", sycall_nb);
     let ret = match sycall_nb {
-        SYSCALL_EXIT => syscall_exit(regs).map(|_| 0),
+        SYSCALL_EXIT => syscall_exit(regs),
         SYSCALL_PRINT => syscall_print(regs).map(|_| 0), // TODO : change these syscalls ?
         SYSCALL_EXEC => syscall_exec(regs),
         SYSCALL_GET_CHAR => syscall_get_char(regs),
@@ -98,33 +98,9 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
     regs.rax = ret;
 }
 
-fn syscall_exit(regs : &mut SyscallRegs) -> Option<()> {
-    
-    with_scheduler_no_int(|scheduler|{
-        let current_process_pid = scheduler.current_process.unwrap();
-        serial_println!("current_process_pid : {:?}", current_process_pid);
-        if current_process_pid.0.get() == 1 {
-            panic!("tried to exit init");
-        }
-        let exit_code = regs.get_arg(1);
-        
-        let current_proc = current_process_pid.get_process_mut(&mut scheduler.processes);
-        current_proc.state = SchedulerState::Zombie(exit_code as i32);
-
-        let parent_pid = current_process_pid.get_process(&scheduler.processes).parent;
-        
-        if let Some(parent_pid) = parent_pid {
-            let parent = parent_pid.get_process_mut(&mut scheduler.processes);
-            if parent.state == SchedulerState::WaitPid(current_process_pid) {
-                //parent.state = SchedulerState::Ready(ReadyMode::Kernel);
-                scheduler.make_runnable_kernel(parent_pid);
-            }
-        }
-    });
-    
-    
-    schedule(regs);
-    Some(())
+fn syscall_exit(regs : &mut SyscallRegs) -> ! {
+    let exit_code = regs.get_arg(1);
+    kill_current_and_schedule(exit_code as i32)
 }
 
 

@@ -4,7 +4,7 @@ use pc_keyboard::{DecodedKey, HandleControl, KeyCode, PS2Keyboard, ScancodeSet1,
 use spin::Mutex;
 use x86_64::{PrivilegeLevel, VirtAddr, instructions::port::Port, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
-use crate::{backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, ringbuf::RingBuf, scheduler::{SCHEDULER, schedule}, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
+use crate::{backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, ringbuf::RingBuf, scheduler::{SCHEDULER, kill_current_and_schedule, schedule}, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -53,7 +53,26 @@ extern "x86-interrupt" fn double_fault_handler(stack_frame: InterruptStackFrame,
     panic!("EXCEPTION: DOUBLE FAULT\n{:#?}", stack_frame);
 }
 
+fn is_from_userspace(cs : u64) -> bool {
+    (cs & 0b11) == 3
+}
+
+fn handle_userspace_page_fault() -> ! {
+    let current_pid = SCHEDULER.lock().current_process.unwrap();
+    if let Some(mut writer_lock) = WRITER.try_lock(){
+        let _ = writeln!(writer_lock, "segfault of process {}", current_pid.0.get());
+    }
+    kill_current_and_schedule(139);
+}
+
+
 extern "x86-interrupt" fn page_fault_handler(stack_frame: InterruptStackFrame, error_code: PageFaultErrorCode){
+    let cs = stack_frame.code_segment.0 as u64;
+
+    if is_from_userspace(cs) {
+        handle_userspace_page_fault()
+    }
+
     if let Some(mut writer_lock) = WRITER.try_lock(){
         let _ = writeln!(writer_lock, "EXCEPTION: PAGE FAULT");
         let _ = writeln!(writer_lock, "Accessed Address: {:?}", Cr2::read());
@@ -127,7 +146,7 @@ fn timer_interrupt_handler(regs : &mut Registers){
 
     let tick = TICKS.fetch_add(1, Ordering::Relaxed);
 
-    if tick.is_multiple_of(TICKS_EACH_SCHEDULE) && regs.cs & 0b11 == 3 {
+    if tick.is_multiple_of(TICKS_EACH_SCHEDULE) && is_from_userspace(regs.cs) {
         // timer in user code
         schedule(regs);
     }

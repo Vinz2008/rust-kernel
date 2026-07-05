@@ -10,7 +10,7 @@ pub extern "Rust" fn main() -> i32 {
 
     let pid = syscall_exec("/cli");
     syscall_wait_pid(pid);
-    
+
     0
 }
 
