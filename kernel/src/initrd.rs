@@ -1,5 +1,6 @@
 use alloc::{slice, string::{String, ToString}, vec::Vec};
 use lazy_static::lazy_static;
+use shared_consts::{Stat, StatMode};
 use spin::Mutex;
 
 use crate::{elf::load_elf, process::Process, scheduler::{SCHEDULER, start_first_process}, serial_println};
@@ -145,7 +146,27 @@ pub struct FileNode<'a> {
     content : FileContent<'a>,
 }
 
+#[derive(Debug)]
+pub enum FileError {
+    DirPathNotFound {
+        dir_not_found : String,
+        path : String,
+    },
+    DirExpected {
+        file_should_be_dir : String,
+        path : String,
+    },
+    FileExpected {
+        path : String,
+    },
+    FileNotFound {
+        path : String,
+    },
+}
+
 const EMPTY_CONTENT : &[u8] = &[];
+
+// TODO : have a fd to not have to resolve path for each file operation
 
 impl<'a> FileNode<'a> {
     fn new_dir(name : String) -> FileNode<'a> {
@@ -219,102 +240,111 @@ impl<'a> FileNode<'a> {
         self.create_file_with_content(path, EMPTY_CONTENT);
     }
 
-    fn _get_file_node<'b>(&self, current_part : &'b str, mut rest_path : impl Iterator<Item = &'b str>) -> &FileNode<'a> {
+    fn _get_file_node<'b>(&self, current_part : &'b str, mut rest_path : impl Iterator<Item = &'b str>) -> Result<&FileNode<'a>, FileError> {
         match rest_path.next() {
             Some(next_part) => {
                 match &self.content {
                     FileContent::Directory { children } => {
                         let child = match children.iter().find(|f| f.name == current_part && f.is_dir()) {
                             Some(c) => c,
-                            None => panic!("couldn't find {}", current_part), // TODO : better error handling
+                            None => return Err(FileError::DirPathNotFound { dir_not_found: current_part.to_string(), path: String::new() }), // the String::new() will be replaced in the wrapper
                         };
                         child._get_file_node(next_part, rest_path)
                     }
-                    FileContent::File { .. } => panic!("expected a dir"), // TODO : replace with good error handling 
+                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: self.name.clone(), path: String::new() }), // the String::new() will be replaced in the wrapper
                 }
             }
             None => {
                 match &self.content {
                     FileContent::Directory { children } => {
-                        children.iter().find(|f| f.name == current_part).unwrap() // TODO : better error handling
+                        match children.iter().find(|f| f.name == current_part){
+                            Some(file) => Ok(file),
+                            None => Err(FileError::FileNotFound { path: String::new() }),
+                        }
                     }
-                    FileContent::File { .. } => panic!("can't create a file in a file"), // TODO : better error handling
+                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: self.name.clone(), path: String::new() }),
                 }
             }
         }
     }
 
 
-    // TODO : get_file_mut
-    fn get_file_node(&self, path : &str) -> &FileNode<'a> {
+    fn get_file_node(&self, path : &str) -> Result<&FileNode<'a>, FileError> {
         if path.is_empty() {
-            return self;
+            return Ok(self);
         }
 
         let mut split_path = path.split('/').filter(|part| !part.is_empty());
         let first_part = match split_path.next() {
             Some(first_part) => first_part,
-            None => panic!("error in path"), // TODO : better error handling
+            None => return Ok(self),
         };
 
-        self._get_file_node(first_part, split_path)
+        match self._get_file_node(first_part, split_path){
+            Err(FileError::DirPathNotFound { dir_not_found, path: _ }) => Err(FileError::DirPathNotFound { dir_not_found, path: path.to_string() }),
+            Err(FileError::DirExpected { file_should_be_dir, path: _ }) => Err(FileError::DirExpected { file_should_be_dir, path: path.to_string() }),
+            Err(FileError::FileNotFound { path: _ }) => Err(FileError::FileNotFound { path: path.to_string() }),
+            f => f,
+        }
     }
 
-    fn _get_file_node_mut<'b>(&mut self, current_part : &'b str, mut rest_path : impl Iterator<Item = &'b str>) -> &mut FileNode<'a> {
+    fn _get_file_node_mut<'b>(&mut self, current_part : &'b str, mut rest_path : impl Iterator<Item = &'b str>) -> Result<&mut FileNode<'a>, FileError> {
         match rest_path.next() {
             Some(next_part) => {
                 match &mut self.content {
                     FileContent::Directory { children } => {
                         let child = match children.iter_mut().find(|f| f.name == current_part && f.is_dir()) {
                             Some(c) => c,
-                            None => panic!("couldn't find {}", current_part), // TODO : better error handling
+                            None => return Err(FileError::DirPathNotFound { dir_not_found: current_part.to_string(), path: String::new() }),
                         };
                         child._get_file_node_mut(next_part, rest_path)
                     }
-                    FileContent::File { .. } => panic!("expected a dir"), // TODO : replace with good error handling 
+                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: self.name.clone(), path: String::new() }), 
                 }
             }
             None => {
                 match &mut self.content {
                     FileContent::Directory { children } => {
-                        children.iter_mut().find(|f| f.name == current_part).unwrap() // TODO : better error handling
+                        match children.iter_mut().find(|f| f.name == current_part){
+                            Some(file) => Ok(file),
+                            None => Err(FileError::FileNotFound { path: String::new() }),
+                        }
                     }
-                    FileContent::File { .. } => panic!("can't create a file in a file"), // TODO : better error handling
+                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: self.name.clone(), path: String::new() }),
                 }
             }
         }
     }
 
 
-    // TODO : get_file_mut
-    fn get_file_node_mut(&mut self, path : &str) -> &mut FileNode<'a> {
+    fn get_file_node_mut(&mut self, path : &str) -> Result<&mut FileNode<'a>, FileError> {
         if path.is_empty() {
-            return self;
+            return Ok(self);
         }
 
         let mut split_path = path.split('/').filter(|part| !part.is_empty());
         let first_part = match split_path.next() {
             Some(first_part) => first_part,
-            None => panic!("error in path"), // TODO : better error handling
+            None => return Ok(self),
         };
 
-        self._get_file_node_mut(first_part, split_path)
+        match self._get_file_node_mut(first_part, split_path){
+            Err(FileError::DirPathNotFound { dir_not_found, path: _ }) => Err(FileError::DirPathNotFound { dir_not_found, path: path.to_string() }),
+            Err(FileError::DirExpected { file_should_be_dir, path: _ }) => Err(FileError::DirExpected { file_should_be_dir, path: path.to_string() }),
+            Err(FileError::FileNotFound { path: _ }) => Err(FileError::FileNotFound { path: path.to_string() }),
+            f => f,
+        }
     }
 
-    fn get_file_content(&self, path : &str) -> &'a [u8] {
-        match &self.get_file_node(path).content {
-            FileContent::File { content } => content,
-            FileContent::Directory { .. } => panic!("can't get file content of dir"),
+    fn get_file_content(&self, path : &str) -> Result<&'a [u8], FileError> {
+        match &self.get_file_node(path)?.content {
+            FileContent::File { content } => Ok(content),
+            FileContent::Directory { .. } => Err(FileError::FileExpected { path: path.to_string() }),
         }
     }
 }
 
 lazy_static! {
-    /*pub static ref TAR_INITRD : Mutex<TarInitrd<'static>> = {
-        let tar_initrd = TarInitrd::new(INITRD_BYTES).expect("invalid tar");
-        Mutex::new(tar_initrd)
-    };*/
-
     pub static ref ROOT_NODE : Mutex<FileNode<'static>> = {
         let tar_initrd = TarInitrd::new(INITRD_BYTES).expect("invalid tar");
         let root_node = fs_create_root_node(tar_initrd);
@@ -343,9 +373,25 @@ fn fs_create_root_node(tar_initrd : TarInitrd<'static>) -> FileNode<'static> {
 }
 
 
-pub fn get_file_content<'a>(path : &str) -> &'a [u8] {
+pub fn get_file_content<'a>(path : &str) -> Result<&'a [u8], FileError> {
     let root_node = ROOT_NODE.lock();
     root_node.get_file_content(path)
+}
+
+
+
+pub fn file_stat(path : &str) -> Result<Stat, FileError> {
+    let root_node = ROOT_NODE.lock();
+    let file_node = root_node.get_file_node(path)?;
+    let mode = match file_node.content {
+        FileContent::File { content } => StatMode::File {
+            size: content.len(),
+        },
+        FileContent::Directory { .. } => StatMode::Directory,
+    };
+    Ok(Stat {
+        mode
+    })
 }
 
 pub fn load_initrd_init() -> ! {
@@ -357,7 +403,7 @@ pub fn load_initrd_init() -> ! {
 
         let root_node = ROOT_NODE.lock();
 
-        let init_content = root_node.get_file_content("/init");
+        let init_content = root_node.get_file_content("/init").unwrap();
         
 
         let process_pid = Process::empty_process();

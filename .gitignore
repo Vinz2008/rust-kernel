@@ -2,4 +2,4 @@
 initrd.tar
 initrd/init
 initrd/cli
-/init/target
+initrd/ls

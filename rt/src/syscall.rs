@@ -1,6 +1,6 @@
-use core::hint::unreachable_unchecked;
+use core::{hint::unreachable_unchecked, mem::MaybeUninit};
 
-use shared_consts::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT, SYSCALL_WAIT_PID};
+use shared_consts::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
 
 pub unsafe fn syscall0(syscall_nb : u64) -> u64 {
     let ret : u64;
@@ -35,6 +35,21 @@ pub unsafe fn syscall2(syscall_nb : u64, arg1 : u64, arg2 : u64) -> u64 {
             inlateout("rax") syscall_nb => ret,
             in("rdi") arg1,
             in("rsi") arg2,
+            options(nostack)
+        );
+    }
+    ret
+}
+
+pub unsafe fn syscall3(syscall_nb : u64, arg1 : u64, arg2 : u64, arg3 : u64) -> u64 {
+    let ret : u64;
+    unsafe {
+        core::arch::asm!(
+            "int 0x80",
+            inlateout("rax") syscall_nb => ret,
+            in("rdi") arg1,
+            in("rsi") arg2,
+            in("rdx") arg3,
             options(nostack)
         );
     }
@@ -80,5 +95,17 @@ pub fn syscall_get_char() -> char {
 pub fn syscall_wait_pid(pid : u64){
     unsafe {
         syscall1(SYSCALL_WAIT_PID, pid); 
+    }
+}
+
+pub fn syscall_stat(path : &str) -> Option<Stat> {
+    let (path_ptr, path_len) = str_to_ptr_and_len(path);
+    let mut stat = MaybeUninit::uninit();
+    let ret = unsafe {
+        syscall3(SYSCALL_STAT, path_ptr, path_len, stat.as_mut_ptr() as u64)
+    };
+    match ret {
+        u64::MAX => None,
+        _ => unsafe { Some(stat.assume_init()) }
     }
 }

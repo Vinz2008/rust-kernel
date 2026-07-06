@@ -115,6 +115,7 @@ fn main() {
 
     add_exe_to_initrd(&target_dir, &profile, "init");
     add_exe_to_initrd(&target_dir, &profile, "cli");
+    add_exe_to_initrd(&target_dir, &profile, "ls");
     
 
     let _ = Command::new("tar")

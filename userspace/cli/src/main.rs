@@ -30,7 +30,7 @@ fn handle_cli(cli : &str){
             }
             println!();
         }
-        _ => println!("unknown command : {}", cli),
+        _ => println!("unknown command : {}", cli), // TODO : use stat to find exe file, and if found execute it
     }
 }
 

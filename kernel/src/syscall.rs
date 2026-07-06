@@ -1,10 +1,10 @@
 use core::{arch::naked_asm, ops::{ControlFlow, Deref, DerefMut}};
 
 use alloc::{slice, str};
-use shared_consts::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT, SYSCALL_WAIT_PID};
+use shared_consts::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
 use x86_64::{VirtAddr, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::get_page_flags_in, elf::load_elf, initrd::get_file_content, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::get_page_flags_in, elf::load_elf, initrd::{file_stat, get_file_content}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
@@ -93,6 +93,7 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
         SYSCALL_EXEC => syscall_exec(regs),
         SYSCALL_GET_CHAR => syscall_get_char(regs),
         SYSCALL_WAIT_PID => syscall_wait_pid(regs).map(|_| 0),
+        SYSCALL_STAT => syscall_stat(regs).map(|_| 0),
         _ => None,
     }.unwrap_or(u64::MAX);
     regs.rax = ret;
@@ -168,7 +169,7 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
     
 
     // TODO : merge this with the init executing, by having an run_exe function in userspace.rs
-    let file_content = get_file_content(path);
+    let file_content = get_file_content(path).ok()?;
 
     let new_proc_pid = interrupts::without_interrupts(|| {
         let new_proc_pid = Process::empty_process();
@@ -243,6 +244,26 @@ fn syscall_wait_pid(regs : &mut SyscallRegs) -> Option<()> {
     }
 
     schedule(regs);
+
+    Some(())
+}
+
+fn syscall_stat(regs : &mut SyscallRegs) -> Option<()>{
+    let path_ptr = regs.get_arg(1) as *const u8;
+    let path_len = regs.get_arg(2) as usize;
+    let stat_ptr = regs.get_arg(3) as *mut Stat;
+
+    if !check_ptr(stat_ptr as usize, size_of::<Stat>(), true){
+        return None;
+    }
+
+    let path_str = create_str(path_ptr, path_len)?;
+
+    let stat = file_stat(path_str).ok()?;
+
+    unsafe {
+        *stat_ptr = stat;
+    }
 
     Some(())
 }

@@ -2,9 +2,10 @@
 resolver = "3"
 members = [
     "kernel",
-    "init", 
-    "userspace/cli", 
-    "rt", 
+    "init",
+    "rt",
+    "userspace/cli",
+    "userspace/ls", 
     "shared_consts",
 ]
 default-members = ["kernel"]
