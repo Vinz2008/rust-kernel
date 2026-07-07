@@ -49,6 +49,7 @@ mod scheduler;
 
 mod userspace;
 
+mod fs;
 mod initrd;
 
 mod cli;

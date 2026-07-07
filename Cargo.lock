@@ -32,7 +32,6 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "rt",
- "shared_consts",
 ]
 
 [[package]]
@@ -107,6 +106,7 @@ dependencies = [
 name = "rt"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "shared_consts",
 ]
 

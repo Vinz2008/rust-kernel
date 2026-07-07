@@ -1,6 +1,6 @@
 use core::num::NonZero;
 
-use alloc::vec::Vec;
+use alloc::{string::{String, ToString}, vec::Vec};
 use x86_64::{PhysAddr, VirtAddr, instructions::interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
 use crate::{allocator::{allocate_userspace_level_4_table, map_page_at_in, map_page_phys_at_in}, gdt::GDT, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main, with_scheduler_no_int}, userspace::USER_STACK_TOP, utils::Registers};
@@ -41,6 +41,28 @@ pub struct Process {
     pub process_kind : ProcessKind,
     pub saved_regs : Registers,
     pub kernel_context : KernelContext,
+    pub cwd_path : String,
+    pub fd_list : Vec<Option<OpenedFile>>,
+}
+
+// TODO : add in the first file desciptors stdout, stdin and stderr
+
+pub struct OpenedFile {
+    path : String, // TODO : have stable id like InodeId
+    offset : usize,
+    readable : bool,
+    writable : bool,
+}
+
+impl OpenedFile {
+    pub fn new(path : String, is_readable : bool, is_writable : bool) -> OpenedFile {
+        OpenedFile { 
+            path, 
+            offset: 0, 
+            readable: is_readable, 
+            writable: is_writable, 
+        }
+    }
 }
 
 const KERNEL_PROC_STACK_BASE: u64 = 0xffff_8000_0000_0000;
@@ -96,6 +118,8 @@ impl Process {
                 process_kind: ProcessKind::User,
                 saved_regs: Registers::default(),
                 kernel_context: KernelContext::default(),
+                cwd_path: "/".to_string(),
+                fd_list: Vec::new(),
             });
 
             new_process_pid
@@ -146,6 +170,8 @@ impl Process {
             process_kind: ProcessKind::Kernel,
             saved_regs,
             kernel_context,
+            cwd_path: String::new(),
+            fd_list: Vec::new(),
         });
         
     }

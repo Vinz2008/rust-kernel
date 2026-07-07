@@ -2,9 +2,7 @@
 #![no_main]
 
 use arrayvec::ArrayString;
-use rt::{self as _, print, println, syscall::{syscall_get_char, syscall_print}};
-use shared_consts::BACKSPACE;
-
+use rt::{self as _, print, println, shared_consts::BACKSPACE, syscall::{syscall_exec, syscall_get_char, syscall_print, syscall_stat, syscall_wait_pid, PATH_MAX}};
 
 fn handle_cli(cli : &str){
     let mut cli_split = cli.split_whitespace();
@@ -30,7 +28,19 @@ fn handle_cli(cli : &str){
             }
             println!();
         }
-        _ => println!("unknown command : {}", cli), // TODO : use stat to find exe file, and if found execute it
+        cmd_name => {
+            let mut path = ArrayString::<PATH_MAX>::new();
+            path.push_str("/");
+            path.push_str(cmd_name);
+            match syscall_stat(&path){
+                Some(_) => {
+                    let pid = syscall_exec(&path);
+                    syscall_wait_pid(pid);
+                },
+                None => println!("unknown command : {}", cli),
+            }
+            
+        },
     }
 }
 

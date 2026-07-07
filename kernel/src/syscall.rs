@@ -1,10 +1,10 @@
 use core::{arch::naked_asm, ops::{ControlFlow, Deref, DerefMut}};
 
 use alloc::{slice, str};
-use shared_consts::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
+use shared_consts::{Fd, READABLE, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat, WRITABLE};
 use x86_64::{VirtAddr, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::get_page_flags_in, elf::load_elf, initrd::{file_stat, get_file_content}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::get_page_flags_in, elf::load_elf, fs::{process_close_file, process_open_file}, initrd::{file_stat, get_file_content}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
@@ -84,6 +84,8 @@ impl SyscallRegs {
     }
 }
 
+// TODO : add a doc with prototypes/list of args for each syscall
+
 fn syscall_interrupt_handler(regs : &mut SyscallRegs){
     let sycall_nb = regs.rax;
     //serial_println!("syscall rax number : {}", sycall_nb);
@@ -94,6 +96,9 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
         SYSCALL_GET_CHAR => syscall_get_char(regs),
         SYSCALL_WAIT_PID => syscall_wait_pid(regs).map(|_| 0),
         SYSCALL_STAT => syscall_stat(regs).map(|_| 0),
+        SYSCALL_OPEN => syscall_open(regs).map(|fd| fd.0 as u64),
+        SYSCALL_CLOSE => syscall_close(regs).map(|_| 0),
+        SYSCALL_GET_CWD => syscall_get_cwd(regs),
         _ => None,
     }.unwrap_or(u64::MAX);
     regs.rax = ret;
@@ -146,6 +151,14 @@ fn create_str<'a>(str_ptr : *const u8, str_len : usize) -> Option<&'a str> {
         Err(_) => return None,
     };
     Some(s)
+}
+
+fn create_buf<'a>(buf_ptr : *mut u8, buf_len : usize) -> Option<&'a mut [u8]> {
+    if !check_ptr(buf_ptr as usize, buf_len, true){
+        return None;
+    }
+    let slice = unsafe { slice::from_raw_parts_mut(buf_ptr, buf_len) };
+    Some(slice)
 }
 
 fn syscall_print(regs : &mut SyscallRegs) -> Option<()> {
@@ -266,4 +279,37 @@ fn syscall_stat(regs : &mut SyscallRegs) -> Option<()>{
     }
 
     Some(())
+}
+
+fn syscall_open(regs : &mut SyscallRegs) -> Option<Fd> {
+    let path_ptr = regs.get_arg(1) as *const u8;
+    let path_len = regs.get_arg(2) as usize;
+    let mode = regs.get_arg(3);
+    let path = create_str(path_ptr, path_len)?;
+    let is_readable = (mode & READABLE) != 0;
+    let is_writable = (mode & WRITABLE) != 0;
+    process_open_file(path, is_readable, is_writable)
+}
+
+fn syscall_close(regs : &mut SyscallRegs) -> Option<()> {
+    let fd = regs.get_arg(1);
+    let fd = Fd(fd as usize);
+    process_close_file(fd)
+}
+
+fn syscall_get_cwd(regs : &mut SyscallRegs) -> Option<u64> {
+    let cwd_buf = regs.get_arg(1) as *mut u8;
+    let cwd_len = regs.get_arg(2) as usize;
+    let cwd_buf = create_buf(cwd_buf, cwd_len)?;
+
+    with_scheduler_no_int(|scheduler|{
+        let cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes).cwd_path;
+        serial_println!("cwd in syscall  : {}", cwd);
+        serial_println!("cwd.len() > cwd_len : {} > {}", cwd.len(), cwd_len);
+        if cwd.len() > cwd_len {
+            return None
+        }
+        cwd_buf[..cwd.len()].copy_from_slice(cwd.as_bytes());
+        Some(cwd.len() as u64)
+    })
 }

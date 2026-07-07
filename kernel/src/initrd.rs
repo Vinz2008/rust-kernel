@@ -381,6 +381,7 @@ pub fn get_file_content<'a>(path : &str) -> Result<&'a [u8], FileError> {
 
 
 pub fn file_stat(path : &str) -> Result<Stat, FileError> {
+    serial_println!("file stat on {}", path);
     let root_node = ROOT_NODE.lock();
     let file_node = root_node.get_file_node(path)?;
     let mode = match file_node.content {

@@ -1,5 +1,7 @@
 #![no_std]
 
+pub use shared_consts;
+
 mod panic;
 pub mod syscall;
 pub mod print;

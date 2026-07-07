@@ -6,4 +6,3 @@ edition = "2024"
 [dependencies]
 arrayvec = { version = "0.7.8", default-features = false }
 rt = { path = "../../rt" }
-shared_consts = { path = "../../shared_consts" }

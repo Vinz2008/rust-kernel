@@ -1,6 +1,9 @@
 use core::{hint::unreachable_unchecked, mem::MaybeUninit};
 
-use shared_consts::{SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_PRINT, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
+use arrayvec::ArrayString;
+use shared_consts::{Fd, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
+
+use crate::print;
 
 pub unsafe fn syscall0(syscall_nb : u64) -> u64 {
     let ret : u64;
@@ -107,5 +110,48 @@ pub fn syscall_stat(path : &str) -> Option<Stat> {
     match ret {
         u64::MAX => None,
         _ => unsafe { Some(stat.assume_init()) }
+    }
+}
+
+pub fn syscall_open(path : &str, mode : u64) -> Option<Fd> {
+    let (path_ptr, path_len) = str_to_ptr_and_len(path);
+    let ret = unsafe {
+        syscall3(SYSCALL_OPEN, path_ptr, path_len, mode)
+    };
+    match ret {
+        u64::MAX => None,
+        _ => Some(Fd(ret as usize))
+    }
+}
+
+pub fn syscall_close(fd : Fd) -> Option<()> {
+    let fd = fd.0 as u64;
+    let ret = unsafe {
+        syscall1(SYSCALL_CLOSE, fd)
+    };
+    
+    match ret {
+        u64::MAX => None,
+        _ => Some(()),
+    }
+}
+
+pub const PATH_MAX : usize = 4096; // TODO : add dynamic memory in userspace
+
+pub fn syscall_get_cwd() -> Option<ArrayString<PATH_MAX>> {
+    let mut ret = ArrayString::new();
+    let ret_ptr = ret.as_ptr() as u64;
+    let ret_len = ret.capacity() as u64;
+    let ret_syscall = unsafe {
+        syscall2(SYSCALL_GET_CWD, ret_ptr, ret_len)
+    };
+    match ret_syscall {
+        u64::MAX => None,
+        len => {
+            unsafe {
+                ret.set_len(len as usize);
+            }
+            Some(ret)
+        },
     }
 }

@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 shared_consts = { path = "../shared_consts" }
+arrayvec = { version = "0.7.8", default-features = false } # TODO : remove this after dynamic memory
