@@ -2,7 +2,7 @@
 #![no_main]
 
 use arrayvec::ArrayString;
-use rt::{self as _, print, println, shared_consts::BACKSPACE, syscall::{syscall_exec, syscall_get_char, syscall_print, syscall_stat, syscall_wait_pid, PATH_MAX}};
+use rt::{self as _, print, println, shared_consts::{BACKSPACE, PATH_MAX}, syscall::{syscall_exec, syscall_get_char, syscall_print, syscall_stat, syscall_wait_pid}};
 
 fn handle_cli(cli : &str){
     let mut cli_split = cli.split_whitespace();

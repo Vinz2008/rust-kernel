@@ -1,6 +1,8 @@
+use core::cmp;
+
 use alloc::{slice, string::{String, ToString}, vec::Vec};
 use lazy_static::lazy_static;
-use shared_consts::{Stat, StatMode};
+use shared_consts::{DIRENT_DIR, DIRENT_FILE, DirChild, PATH_MAX, PATH_NAME_MAX, Stat, StatMode};
 use spin::Mutex;
 
 use crate::{elf::load_elf, process::Process, scheduler::{SCHEDULER, start_first_process}, serial_println};
@@ -153,7 +155,7 @@ pub enum FileError {
         path : String,
     },
     DirExpected {
-        file_should_be_dir : String,
+        file_should_be_dir : Option<String>,
         path : String,
     },
     FileExpected {
@@ -162,6 +164,7 @@ pub enum FileError {
     FileNotFound {
         path : String,
     },
+    FdNotFound,
 }
 
 const EMPTY_CONTENT : &[u8] = &[];
@@ -251,7 +254,7 @@ impl<'a> FileNode<'a> {
                         };
                         child._get_file_node(next_part, rest_path)
                     }
-                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: self.name.clone(), path: String::new() }), // the String::new() will be replaced in the wrapper
+                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: Some(self.name.clone()), path: String::new() }), // the String::new() will be replaced in the wrapper
                 }
             }
             None => {
@@ -262,7 +265,7 @@ impl<'a> FileNode<'a> {
                             None => Err(FileError::FileNotFound { path: String::new() }),
                         }
                     }
-                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: self.name.clone(), path: String::new() }),
+                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: Some(self.name.clone()), path: String::new() }),
                 }
             }
         }
@@ -299,7 +302,7 @@ impl<'a> FileNode<'a> {
                         };
                         child._get_file_node_mut(next_part, rest_path)
                     }
-                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: self.name.clone(), path: String::new() }), 
+                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: Some(self.name.clone()), path: String::new() }), 
                 }
             }
             None => {
@@ -310,7 +313,7 @@ impl<'a> FileNode<'a> {
                             None => Err(FileError::FileNotFound { path: String::new() }),
                         }
                     }
-                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: self.name.clone(), path: String::new() }),
+                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: Some(self.name.clone()), path: String::new() }),
                 }
             }
         }
@@ -334,6 +337,40 @@ impl<'a> FileNode<'a> {
             Err(FileError::FileNotFound { path: _ }) => Err(FileError::FileNotFound { path: path.to_string() }),
             f => f,
         }
+    }
+
+    pub fn read_dir_children(&self, path : &str, start_offset : usize, out : &mut [DirChild]) -> Result<usize, FileError> {
+        let dir_node = self.get_file_node(path)?;
+
+        let children = match &dir_node.content {
+            FileContent::Directory { children } => children,
+            FileContent::File { .. } => {
+                return Err(FileError::DirExpected { file_should_be_dir: None, path: path.to_string() })
+            }
+        };
+
+        let mut written = 0;
+        
+        for child in children.iter().skip(start_offset).take(out.len()){
+            let kind = match child.content {
+                FileContent::Directory { .. } => DIRENT_DIR,
+                FileContent::File { .. } => DIRENT_FILE,
+            };
+
+            let name_len = cmp::min(child.name.len(), PATH_NAME_MAX);
+
+            let mut entry = DirChild {
+                kind,
+                name_len: name_len as u8,
+                name: [0; PATH_NAME_MAX],
+            };
+
+            entry.name[..name_len].copy_from_slice(&child.name.as_bytes()[..name_len]);
+            out[written] = entry;
+            written += 1;
+        }
+
+        Ok(written)
     }
 
     fn get_file_content(&self, path : &str) -> Result<&'a [u8], FileError> {
@@ -393,6 +430,11 @@ pub fn file_stat(path : &str) -> Result<Stat, FileError> {
     Ok(Stat {
         mode
     })
+}
+
+pub fn file_read_dir_children(path : &str, start_offset : usize, out : &mut [DirChild]) -> Result<usize, FileError> {
+    let root = ROOT_NODE.lock();
+    root.read_dir_children(path, start_offset, out)
 }
 
 pub fn load_initrd_init() -> ! {

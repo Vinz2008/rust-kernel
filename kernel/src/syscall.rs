@@ -1,10 +1,10 @@
 use core::{arch::naked_asm, ops::{ControlFlow, Deref, DerefMut}};
 
 use alloc::{slice, str};
-use shared_consts::{Fd, READABLE, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat, WRITABLE};
+use shared_consts::{DirChild, Fd, READABLE, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_GET_DIR_CHILDREN, Stat, WRITABLE};
 use x86_64::{VirtAddr, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB}};
 
-use crate::{allocator::get_page_flags_in, elf::load_elf, fs::{process_close_file, process_open_file}, initrd::{file_stat, get_file_content}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::get_page_flags_in, elf::load_elf, fs::{process_close_file, process_get_dir_children, process_open_file}, initrd::{file_stat, get_file_content}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
@@ -99,6 +99,7 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
         SYSCALL_OPEN => syscall_open(regs).map(|fd| fd.0 as u64),
         SYSCALL_CLOSE => syscall_close(regs).map(|_| 0),
         SYSCALL_GET_CWD => syscall_get_cwd(regs),
+        SYSCALL_GET_DIR_CHILDREN => syscall_get_dir_children(regs),
         _ => None,
     }.unwrap_or(u64::MAX);
     regs.rax = ret;
@@ -153,8 +154,8 @@ fn create_str<'a>(str_ptr : *const u8, str_len : usize) -> Option<&'a str> {
     Some(s)
 }
 
-fn create_buf<'a>(buf_ptr : *mut u8, buf_len : usize) -> Option<&'a mut [u8]> {
-    if !check_ptr(buf_ptr as usize, buf_len, true){
+fn create_buf<'a, T>(buf_ptr : *mut T, buf_len : usize) -> Option<&'a mut [T]> {
+    if !check_ptr(buf_ptr as usize, buf_len * size_of::<T>(), true){
         return None;
     }
     let slice = unsafe { slice::from_raw_parts_mut(buf_ptr, buf_len) };
@@ -312,4 +313,15 @@ fn syscall_get_cwd(regs : &mut SyscallRegs) -> Option<u64> {
         cwd_buf[..cwd.len()].copy_from_slice(cwd.as_bytes());
         Some(cwd.len() as u64)
     })
+}
+
+fn syscall_get_dir_children(regs : &mut SyscallRegs) -> Option<u64> {
+    let fd = regs.get_arg(1);
+    let children_ptr = regs.get_arg(2) as *mut DirChild;
+    let children_len = regs.get_arg(3) as usize;
+    let fd = Fd(fd as usize);
+    let children_buf = create_buf(children_ptr, children_len)?;
+    
+    
+    process_get_dir_children(fd, children_buf).ok().map(|nb| nb as u64)
 }

@@ -48,8 +48,8 @@ pub struct Process {
 // TODO : add in the first file desciptors stdout, stdin and stderr
 
 pub struct OpenedFile {
-    path : String, // TODO : have stable id like InodeId
-    offset : usize,
+    pub path : String, // TODO : have stable id like InodeId
+    pub offset : usize,
     readable : bool,
     writable : bool,
 }

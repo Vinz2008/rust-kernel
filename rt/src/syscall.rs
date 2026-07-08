@@ -1,7 +1,7 @@
 use core::{hint::unreachable_unchecked, mem::MaybeUninit};
 
 use arrayvec::ArrayString;
-use shared_consts::{Fd, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
+use shared_consts::{DirChild, Fd, PATH_MAX, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
 
 pub unsafe fn syscall0(syscall_nb : u64) -> u64 {
     let ret : u64;
@@ -134,8 +134,6 @@ pub fn syscall_close(fd : Fd) -> Option<()> {
     }
 }
 
-pub const PATH_MAX : usize = 4096; // TODO : add dynamic memory in userspace
-
 pub fn syscall_get_cwd() -> Option<ArrayString<PATH_MAX>> {
     let mut ret = ArrayString::new();
     let ret_ptr = ret.as_ptr() as u64;
@@ -151,5 +149,22 @@ pub fn syscall_get_cwd() -> Option<ArrayString<PATH_MAX>> {
             }
             Some(ret)
         },
+    }
+}
+
+pub fn syscall_get_dir_children(fd : Fd, children : &mut [DirChild]) -> Option<usize> {
+    let fd = fd.0 as u64;
+    let children_ptr = children.as_mut_ptr() as u64;
+    let children_len = children.len() as u64;
+    
+    let ret = unsafe {
+        syscall3(SYSCALL_GET_DIR_CHILDREN, fd, children_ptr, children_len)
+    };
+
+    match ret {
+        u64::MAX => None,
+        ret => {
+            Some(ret as usize)
+        }
     }
 }
