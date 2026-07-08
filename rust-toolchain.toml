@@ -1,0 +1,4 @@
+# TODO : remove this after fixing the softfloat problem in bootloader (upgrading ? vendor the bootloader ?)
+[toolchain]
+channel = "nightly-2026-07-01"
+components = ["rust-src", "llvm-tools-preview"]
