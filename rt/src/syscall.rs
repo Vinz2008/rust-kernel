@@ -3,8 +3,6 @@ use core::{hint::unreachable_unchecked, mem::MaybeUninit};
 use arrayvec::ArrayString;
 use shared_consts::{Fd, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
 
-use crate::print;
-
 pub unsafe fn syscall0(syscall_nb : u64) -> u64 {
     let ret : u64;
     unsafe {

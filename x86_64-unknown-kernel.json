@@ -12,7 +12,7 @@
     "panic-strategy": "abort",
     "disable-redzone": true,
     "features": "-mmx,-sse,+soft-float",
-    "rustc-abi": "x86-softfloat",
+    "rustc-abi": "softfloat",
     "frame-pointer": "always",
     "code-model": "kernel",
     "relocation-model": "static"
