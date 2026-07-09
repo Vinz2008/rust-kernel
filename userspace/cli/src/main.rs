@@ -1,8 +1,7 @@
 #![no_std]
 #![no_main]
 
-use arrayvec::ArrayString;
-use rt::{self as _, print, println, shared_consts::{BACKSPACE, PATH_MAX}, syscall::{syscall_exec, syscall_get_char, syscall_print, syscall_stat, syscall_wait_pid}};
+use rt::{self as _, alloc::string::String, print, println, shared_consts::BACKSPACE, syscall::{syscall_exec, syscall_get_char, syscall_print, syscall_stat, syscall_wait_pid}};
 
 fn handle_cli(cli : &str){
     let mut cli_split = cli.split_whitespace();
@@ -29,7 +28,7 @@ fn handle_cli(cli : &str){
             println!();
         }
         cmd_name => {
-            let mut path = ArrayString::<PATH_MAX>::new();
+            let mut path = String::new();
             path.push_str("/");
             path.push_str(cmd_name);
             match syscall_stat(&path){
@@ -46,7 +45,7 @@ fn handle_cli(cli : &str){
 
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main() -> i32 {
-    let mut cli : ArrayString<10000> = ArrayString::new();
+    let mut cli = String::new();
     syscall_print("> ");
 
     loop {
@@ -64,9 +63,8 @@ pub extern "Rust" fn main() -> i32 {
                 print!("{}", BACKSPACE);
             }
             _ => {
-                if let Ok(_) = cli.try_push(c) {
-                    print!("{}", c);
-                }
+                cli.push(c);
+                print!("{}", c);
             }
         }
         
