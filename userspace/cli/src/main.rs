@@ -29,7 +29,7 @@ fn handle_cli(cli : &str){
         }
         cmd_name => {
             let mut path = String::new();
-            path.push_str("/");
+            path.push('/');
             path.push_str(cmd_name);
             match syscall_stat(&path){
                 Some(_) => {

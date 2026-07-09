@@ -328,7 +328,7 @@ fn syscall_get_dir_children(regs : &mut SyscallRegs) -> Option<u64> {
 }
 
 fn syscall_sbrk(regs : &mut SyscallRegs) -> Option<u64> {
-    let increment = regs.get_arg(1) as u64; // TODO : make it i64, and handle shrinking
+    let increment = regs.get_arg(1); // TODO : make it i64, and handle shrinking
     let (page_table_phys, current_break, new_break) = with_scheduler_no_int(|scheduler|{
         let current_proc = scheduler.current_process.unwrap().get_process_mut(&mut scheduler.processes);
         let current_break = current_proc.heap_break.as_u64();

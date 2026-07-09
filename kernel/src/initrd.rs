@@ -2,7 +2,7 @@ use core::cmp;
 
 use alloc::{slice, string::{String, ToString}, vec::Vec};
 use lazy_static::lazy_static;
-use shared_consts::{DIRENT_DIR, DIRENT_FILE, DirChild, PATH_MAX, PATH_NAME_MAX, Stat, StatMode};
+use shared_consts::{DIRENT_DIR, DIRENT_FILE, DirChild, PATH_NAME_MAX, Stat, StatMode};
 use spin::Mutex;
 
 use crate::{elf::load_elf, process::Process, scheduler::{SCHEDULER, start_first_process}, serial_println};

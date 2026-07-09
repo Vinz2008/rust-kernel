@@ -7,7 +7,7 @@ struct Writer;
 impl fmt::Write for Writer {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         let res = syscall_print(s);
-        if let None = res {
+        if res.is_none() {
             return Err(fmt::Error);
         }
         Ok(())

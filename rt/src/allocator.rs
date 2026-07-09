@@ -135,7 +135,7 @@ fn init_allocator(allocator : &Allocator) -> Option<usize> {
     allocator.heap_start.store(current_brk, Ordering::Relaxed);
     grow_heap(allocator, HEAP_CHUNK_SIZE)?;
     
-    Some(current_brk as usize)
+    Some(current_brk)
 }
 
 fn add_free_block_before_and_after(allocator : &Allocator, free_node : NonNull<FreeListNode>, alloc_ptr : usize, size : usize) -> Option<()> {
@@ -163,14 +163,8 @@ unsafe impl GlobalAlloc for Allocator {
             return layout.align() as *mut u8;
         }
 
-        match self.current_brk.load(Ordering::Relaxed) {
-            0 => {
-                match init_allocator(self){
-                    Some(_) => {},
-                    None => return null_mut(),
-                }
-            },
-            _ => {}
+        if self.current_brk.load(Ordering::Relaxed) == 0 && init_allocator(self).is_none() {
+            return null_mut()
         };
 
         let (free_node, alloc_ptr) = match find_free_node_alloc(self, layout.size(), layout.align()){
