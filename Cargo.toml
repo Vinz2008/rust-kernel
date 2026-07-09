@@ -6,7 +6,7 @@ members = [
     "rt",
     "userspace/cli",
     "userspace/ls", 
-    "shared_consts",
+    "shared_consts", "userspace/shutdown",
 ]
 default-members = ["kernel"]
 

@@ -1,10 +1,10 @@
 use core::{arch::naked_asm, ops::{ControlFlow, Deref, DerefMut}};
 
 use alloc::{slice, str};
-use shared_consts::{DirChild, Fd, READABLE, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat, WRITABLE};
+use shared_consts::{DirChild, Fd, READABLE, SHUTDOWN_SUCCESS, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat, WRITABLE};
 use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{process_close_file, process_get_dir_children, process_open_file}, initrd::{file_stat, get_file_content}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{process_close_file, process_get_dir_children, process_open_file}, initrd::{file_stat, get_file_content}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, qemu::{self, QemuExitCode}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
@@ -101,6 +101,7 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
         SYSCALL_GET_CWD => syscall_get_cwd(regs),
         SYSCALL_GET_DIR_CHILDREN => syscall_get_dir_children(regs),
         SYSCALL_SBRK => syscall_sbrk(regs),
+        SYSCALL_SHUTDOWN => syscall_shutdown(regs),
         _ => None,
     }.unwrap_or(u64::MAX);
     regs.rax = ret;
@@ -359,4 +360,14 @@ fn syscall_sbrk(regs : &mut SyscallRegs) -> Option<u64> {
     
     Some(current_break)
     
+}
+
+fn syscall_shutdown(regs : &mut SyscallRegs) -> ! {
+    let flags = regs.get_arg(1);
+    let status = if (flags & SHUTDOWN_SUCCESS) != 0 {
+        QemuExitCode::Success
+    } else {
+        QemuExitCode::Failed
+    };
+    qemu::exit_qemu(status)
 }

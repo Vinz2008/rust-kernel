@@ -11,6 +11,7 @@ pub const SYSCALL_CLOSE : u64 = 7;
 pub const SYSCALL_GET_CWD : u64 = 8;
 pub const SYSCALL_GET_DIR_CHILDREN : u64 = 9;
 pub const SYSCALL_SBRK : u64 = 10;
+pub const SYSCALL_SHUTDOWN : u64 = 11;
 
 pub const BACKSPACE: char = '\u{0008}';
 pub const BACKSPACE_BYTE : u8 = b'\x08';
@@ -51,3 +52,7 @@ pub const PATH_NAME_MAX : usize = 256;
 
 pub const USER_HEAP_START : usize = 0x0000_0000_4000_0000;
 pub const USER_HEAP_SIZE : usize = 1024 * 1024 * 1024; // 1 GiB
+
+// last bit is for success or failure
+pub const SHUTDOWN_SUCCESS : u64 = 0x1;
+pub const SHUTDOWN_FAILURE : u64 = 0x0;

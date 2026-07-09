@@ -3,3 +3,4 @@ initrd.tar
 initrd/init
 initrd/cli
 initrd/ls
+initrd/shutdown
