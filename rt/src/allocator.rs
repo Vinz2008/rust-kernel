@@ -1,47 +1,66 @@
-// TODO : add real heap allocation
+use core::{alloc::GlobalAlloc, ptr::null_mut, sync::atomic::{AtomicUsize, Ordering}};
 
-use core::{alloc::GlobalAlloc, ptr::null_mut};
+use crate::syscall::syscall_sbrk;
 
-const HEAP_SIZE : usize = 64 * 1024;
-static mut HEAP : [u8; HEAP_SIZE] = [0; HEAP_SIZE];
-static mut HEAP_COUNT : usize = 0;
-
-struct Allocator;
+struct Allocator {
+    current_brk : AtomicUsize,
+}
 
 #[global_allocator]
-static ALLOCATOR : Allocator = Allocator;
+static ALLOCATOR : Allocator = Allocator { current_brk: AtomicUsize::new(0) };
 
-const fn align_up(addr: usize, align: usize) -> usize {
-    debug_assert!(align.is_power_of_two());
-    (addr + align - 1) & !(align - 1)
+const fn align_up(addr: usize, align: usize) -> Option<usize> {
+    if !align.is_power_of_two(){
+        return None;
+    }
+    match addr.checked_add(align - 1){
+        Some(x) => Some(x & !(align - 1)),
+        None => None,
+    }
 }
 
 #[allow(static_mut_refs)]
 unsafe impl GlobalAlloc for Allocator {
     unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
-        unsafe {
-            let heap_next = HEAP.as_mut_ptr().add(HEAP_COUNT) as usize;
-            
-            let heap_end = HEAP.as_mut_ptr().add(HEAP_SIZE) as usize;
+        // TODO : sbrk of more than real allocation to amortize syscalls ? (chunks of 64 KiB ?)
 
-
-            let aligned_ptr = align_up(heap_next, layout.align());
-            let next_ptr = match aligned_ptr.checked_add(layout.size()){
-                Some(next) => next,
-                None => return null_mut(),
-            };
-
-            if next_ptr > heap_end {
-                return null_mut();
-            }
-
-            HEAP_COUNT = next_ptr - HEAP.as_ptr() as usize;
-
-            next_ptr as *mut u8
+        if layout.size() == 0 {
+            return layout.align() as *mut u8;
         }
+
+        let old_brk = match self.current_brk.load(Ordering::Relaxed) {
+            0 => match syscall_sbrk(0) {
+                Some(sbrk) => sbrk as usize,
+                None => return null_mut(),
+            },
+            current_brk => current_brk
+        };
+
+        let aligned_ptr = match align_up(old_brk, layout.align()){
+            Some(ptr) => ptr,
+            None => return null_mut(),
+        };
+
+        let new_brk = match aligned_ptr.checked_add(layout.size()){
+            Some(new_brk) => new_brk,
+            None => return null_mut(),
+        };
+
+        let increment = match new_brk.checked_sub(old_brk){
+            Some(inc) => inc,
+            None => return null_mut(),
+        };
+
+        if syscall_sbrk(increment as u64).is_none(){
+            return null_mut();
+        }
+
+        self.current_brk.store(new_brk, Ordering::Relaxed);
+
+        aligned_ptr as *mut u8
     }
 
     unsafe fn dealloc(&self, _ptr: *mut u8, _layout: core::alloc::Layout) {
-        
+        // TODO : add freelist for freeing ?
     }
 }

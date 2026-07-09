@@ -10,6 +10,7 @@ pub const SYSCALL_OPEN : u64 = 6;
 pub const SYSCALL_CLOSE : u64 = 7;
 pub const SYSCALL_GET_CWD : u64 = 8;
 pub const SYSCALL_GET_DIR_CHILDREN : u64 = 9;
+pub const SYSCALL_SBRK : u64 = 10;
 
 pub const BACKSPACE: char = '\u{0008}';
 pub const BACKSPACE_BYTE : u8 = b'\x08';
@@ -47,3 +48,6 @@ pub struct DirChild {
 
 pub const PATH_MAX : usize = 4096; // TODO : add dynamic memory in userspace to use this less
 pub const PATH_NAME_MAX : usize = 256;
+
+pub const USER_HEAP_START : usize = 0x0000_0000_4000_0000;
+pub const USER_HEAP_SIZE : usize = 1024 * 1024 * 1024; // 1 GiB

@@ -1,6 +1,7 @@
 use core::num::NonZero;
 
 use alloc::{string::{String, ToString}, vec::Vec};
+use shared_consts::{USER_HEAP_SIZE, USER_HEAP_START};
 use x86_64::{PhysAddr, VirtAddr, instructions::interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
 use crate::{allocator::{allocate_userspace_level_4_table, map_page_at_in, map_page_phys_at_in}, gdt::GDT, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main, with_scheduler_no_int}, userspace::USER_STACK_TOP, utils::Registers};
@@ -43,6 +44,9 @@ pub struct Process {
     pub kernel_context : KernelContext,
     pub cwd_path : String,
     pub fd_list : Vec<Option<OpenedFile>>,
+    pub heap_start : VirtAddr,
+    pub heap_break : VirtAddr,
+    pub heap_max : VirtAddr,
 }
 
 // TODO : add in the first file desciptors stdout, stdin and stderr
@@ -120,6 +124,9 @@ impl Process {
                 kernel_context: KernelContext::default(),
                 cwd_path: "/".to_string(),
                 fd_list: Vec::new(),
+                heap_start: VirtAddr::new(USER_HEAP_START as u64),
+                heap_break: VirtAddr::new(USER_HEAP_START as u64),
+                heap_max: VirtAddr::new((USER_HEAP_START + USER_HEAP_SIZE) as u64),
             });
 
             new_process_pid
@@ -172,11 +179,15 @@ impl Process {
             kernel_context,
             cwd_path: String::new(),
             fd_list: Vec::new(),
+            heap_start: VirtAddr::new(0),
+            heap_break: VirtAddr::new(0),
+            heap_max: VirtAddr::new(0),
         });
         
     }
 
     pub fn init_process(&mut self, entrypoint : usize){
+
         let stack_segment = GDT.1.user_data_selector.0 as u64 | 3;
         let code_segment = GDT.1.user_code_selector.0 as u64 | 3;
         let rflags = RFlags::INTERRUPT_FLAG | RFlags::from_bits_truncate(0x2); // 0x2 is for the reserved bit that always need to be 1

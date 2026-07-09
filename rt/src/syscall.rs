@@ -1,7 +1,7 @@
 use core::{hint::unreachable_unchecked, mem::MaybeUninit};
 
 use arrayvec::ArrayString;
-use shared_consts::{DirChild, Fd, PATH_MAX, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
+use shared_consts::{DirChild, Fd, PATH_MAX, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
 
 pub unsafe fn syscall0(syscall_nb : u64) -> u64 {
     let ret : u64;
@@ -166,5 +166,15 @@ pub fn syscall_get_dir_children(fd : Fd, children : &mut [DirChild]) -> Option<u
         ret => {
             Some(ret as usize)
         }
+    }
+}
+
+pub fn syscall_sbrk(increment : u64) -> Option<u64> {
+    let ret = unsafe {
+        syscall1(SYSCALL_SBRK, increment)
+    };
+    match ret {
+        u64::MAX => None,
+        ret => Some(ret),
     }
 }

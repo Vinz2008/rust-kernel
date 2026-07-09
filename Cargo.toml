@@ -9,3 +9,9 @@ members = [
     "shared_consts",
 ]
 default-members = ["kernel"]
+
+[profile.release]
+opt-level = 2
+strip = "symbols"
+overflow-checks = true
+lto = "fat"

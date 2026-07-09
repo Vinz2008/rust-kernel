@@ -38,7 +38,9 @@ use crate::{allocator::map_page_at_in, elf::elf_to_page_permission, process::Pro
 }*/
 
 pub const USER_STACK_TOP: usize = 0x0000_7fff_ffff_f000;
-const USER_STACK_SIZE: usize = 64 * 1024; // 64 KiB
+const USER_STACK_SIZE: usize = 1024 * 1024; // 1MiB
+
+// TODO : add guard page
 
 pub fn map_userspace_stack(process : &Process, stack_flags : u32){
     // TODO : maybe replace the pattern like this with a range of page with a function mapping multiple page (like for example a start address and a number of pages or a len ?)

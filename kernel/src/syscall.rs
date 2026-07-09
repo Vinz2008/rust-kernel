@@ -1,10 +1,10 @@
 use core::{arch::naked_asm, ops::{ControlFlow, Deref, DerefMut}};
 
 use alloc::{slice, str};
-use shared_consts::{DirChild, Fd, READABLE, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_GET_DIR_CHILDREN, Stat, WRITABLE};
-use x86_64::{VirtAddr, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB}};
+use shared_consts::{DirChild, Fd, READABLE, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat, WRITABLE};
+use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::get_page_flags_in, elf::load_elf, fs::{process_close_file, process_get_dir_children, process_open_file}, initrd::{file_stat, get_file_content}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{process_close_file, process_get_dir_children, process_open_file}, initrd::{file_stat, get_file_content}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
@@ -100,6 +100,7 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
         SYSCALL_CLOSE => syscall_close(regs).map(|_| 0),
         SYSCALL_GET_CWD => syscall_get_cwd(regs),
         SYSCALL_GET_DIR_CHILDREN => syscall_get_dir_children(regs),
+        SYSCALL_SBRK => syscall_sbrk(regs),
         _ => None,
     }.unwrap_or(u64::MAX);
     regs.rax = ret;
@@ -324,4 +325,38 @@ fn syscall_get_dir_children(regs : &mut SyscallRegs) -> Option<u64> {
     
     
     process_get_dir_children(fd, children_buf).ok().map(|nb| nb as u64)
+}
+
+fn syscall_sbrk(regs : &mut SyscallRegs) -> Option<u64> {
+    let increment = regs.get_arg(1) as u64; // TODO : make it i64, and handle shrinking
+    let (page_table_phys, current_break, new_break) = with_scheduler_no_int(|scheduler|{
+        let current_proc = scheduler.current_process.unwrap().get_process_mut(&mut scheduler.processes);
+        let current_break = current_proc.heap_break.as_u64();
+        let new_break = current_break.checked_add(increment)?;
+        if new_break > current_proc.heap_max.as_u64() || new_break < current_proc.heap_start.as_u64() {
+            return None;
+        }
+        let page_table_phys = current_proc.page_table_phys;
+        current_proc.heap_break = VirtAddr::new(new_break);
+        Some((page_table_phys, current_break, new_break))
+    })?;
+
+    let map_start  = align_up(current_break, 4096);
+    let map_end = align_up(new_break, 4096);
+    
+    if increment > 0 && map_start < map_end {    
+        let start_page = Page::<Size4KiB>::containing_address(VirtAddr::new(map_start));
+        let end_page = Page::<Size4KiB>::containing_address(VirtAddr::new(map_end-1));
+        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE;
+        for page in Page::range_inclusive(start_page, end_page){
+            match map_page_at_in(page_table_phys.start_address(), page.start_address(), flags){
+                Ok(_) => {},
+                Err(MapToError::PageAlreadyMapped(_)) => {},
+                Err(e) => panic!("error when mapping user heap pages in sbrk : {:?}", e),
+            }
+        }
+    }
+    
+    Some(current_break)
+    
 }

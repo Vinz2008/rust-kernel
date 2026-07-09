@@ -1,6 +1,6 @@
 #![no_std]
 
-extern crate alloc;
+pub extern crate alloc;
 
 pub use shared_consts;
 
