@@ -1,8 +1,11 @@
 #![no_std]
 
+extern crate alloc;
+
 pub use shared_consts;
 
 mod panic;
+mod allocator;
 pub mod syscall;
 pub mod print;
 
