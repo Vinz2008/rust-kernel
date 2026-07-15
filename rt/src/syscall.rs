@@ -2,7 +2,7 @@ use core::{hint::unreachable_unchecked, mem::MaybeUninit};
 
 use alloc::vec::Vec;
 use arrayvec::ArrayString;
-use shared_consts::{Arg, DirChild, Fd, PATH_MAX, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
+use shared_consts::{Arg, DirChild, Fd, PATH_MAX, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
 
 pub unsafe fn syscall0(syscall_nb : u64) -> u64 {
     let ret : u64;
@@ -205,4 +205,15 @@ pub fn syscall_shutdown(flags : u64) -> ! {
         syscall1(SYSCALL_SHUTDOWN, flags);
     }
     panic!("shutdown syscall failed")
+}
+
+pub fn syscall_change_cwd(dir : &str) -> Option<()> {
+    let (dir_ptr, dir_len) = str_to_ptr_and_len(dir);
+    let ret = unsafe {
+        syscall2(SYSCALL_CHANGE_CWD, dir_ptr, dir_len)
+    };
+    match ret {
+        u64::MAX => None,
+        _ => Some(())
+    }
 }

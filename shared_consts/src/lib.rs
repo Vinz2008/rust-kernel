@@ -12,6 +12,7 @@ pub const SYSCALL_GET_CWD : u64 = 8;
 pub const SYSCALL_GET_DIR_CHILDREN : u64 = 9;
 pub const SYSCALL_SBRK : u64 = 10;
 pub const SYSCALL_SHUTDOWN : u64 = 11;
+pub const SYSCALL_CHANGE_CWD : u64 = 12;
 
 pub const BACKSPACE: char = '\u{0008}';
 pub const BACKSPACE_BYTE : u8 = b'\x08';

@@ -1,10 +1,10 @@
 #![no_std]
 #![no_main]
 
-use rt::{self as _, Args, alloc::string::String, print, println, shared_consts::BACKSPACE, syscall::{syscall_exec, syscall_get_char, syscall_print, syscall_stat, syscall_wait_pid}};
+use rt::{self as _, Args, alloc::{string::String, vec}, print, println, shared_consts::BACKSPACE, syscall::{syscall_change_cwd, syscall_exec, syscall_get_char, syscall_get_cwd, syscall_print, syscall_stat, syscall_wait_pid}};
 
 fn handle_cli(cli : &str){
-    let mut cli_split = cli.split_whitespace();
+    let mut cli_split = cli.split_whitespace(); // TODO : better parsing, for ex with quotess
     let command_name = cli_split.next();
     let command_name = match command_name {
         Some(cmd_name) => cmd_name,
@@ -27,13 +27,30 @@ fn handle_cli(cli : &str){
             }
             println!();
         }
+        "pwd" => {
+            let cwd = syscall_get_cwd().unwrap();
+            println!("{}", cwd);
+            
+        }
+        "cd" => {
+            let dir = match cli_split.next(){
+                Some(dir) => dir,
+                None => {
+                    println!("expected dir after cd");
+                    return;
+                }
+            };
+            syscall_change_cwd(dir);
+        }
         cmd_name => {
             let mut path = String::new();
             path.push('/');
             path.push_str(cmd_name);
             match syscall_stat(&path){
                 Some(_) => {
-                    let pid = syscall_exec(&path, &[&path]);
+                    let mut argv = vec![path.as_str()];
+                    argv.extend(cli_split);
+                    let pid = syscall_exec(&path, &argv);
                     syscall_wait_pid(pid);
                 },
                 None => println!("unknown command : {}", cli),
