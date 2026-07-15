@@ -19,7 +19,9 @@ pub unsafe fn active_level_4_table() -> &'static mut PageTable {
 
 pub unsafe fn translate_addr(addr: VirtAddr) -> Option<PhysAddr> {
     let (level_4_table_frame, _) = Cr3::read();
-    translate_addr_in(level_4_table_frame, addr)
+    unsafe {
+        translate_addr_in(level_4_table_frame, addr)
+    }
 }
 
 pub unsafe fn translate_addr_in(page_table_frame : PhysFrame, addr: VirtAddr) -> Option<PhysAddr> {

@@ -122,7 +122,7 @@ impl Process {
                 process_kind: ProcessKind::User,
                 saved_regs: Registers::default(),
                 kernel_context: KernelContext::default(),
-                cwd_path: cwd_path,
+                cwd_path,
                 fd_list: Vec::new(),
                 heap_start: VirtAddr::new(USER_HEAP_START as u64),
                 heap_break: VirtAddr::new(USER_HEAP_START as u64),
@@ -217,7 +217,7 @@ impl Process {
         Self::write_to_process_stack_u64(page_table, &mut current_stack_ptr, 0);
 
         for &(arg_ptr, arg_len) in args_ptr.iter().rev() {
-            Self::write_to_process_stack_u64(page_table, &mut current_stack_ptr, arg_ptr as u64);
+            Self::write_to_process_stack_u64(page_table, &mut current_stack_ptr, arg_ptr);
             Self::write_to_process_stack_u64(page_table, &mut current_stack_ptr, arg_len as u64);
         }
 

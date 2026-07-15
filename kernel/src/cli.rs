@@ -1,4 +1,4 @@
-use arrayvec::ArrayString;
+/*use arrayvec::ArrayString;
 use lazy_static::lazy_static;
 use spin::Mutex;
 
@@ -37,26 +37,26 @@ impl CliContext {
             cmd => println!("Unknown command {} !!", cmd),
         }
         print!(">");
-        /*(self.cursor.row_pos, self.cursor.col_pos) = {
+        (self.cursor.row_pos, self.cursor.col_pos) = {
             let writer_lock = WRITER.lock();
             (writer_lock.get_row(), writer_lock.get_col())
-        };*/
-        //self.cursor.update_cursor();
+        };
+        self.cursor.update_cursor();
         self.cli_line.clear();
     }
 }
 
-/*pub struct Cursor {
+pub struct Cursor {
     row_pos : usize,
     col_pos : usize,
-}*/
+}
 
 
 
 // TODO : add a custom cursor mode for cli or other program wanting to control completely the cursor
 
-//impl Cursor {
-    /*fn update_cursor(&self){
+impl Cursor {
+    fn update_cursor(&self){
         let pos = self.row_pos * BUFFER_WIDTH + self.col_pos;
         let mut port1 = Port::<u8>::new(0x3D4);
         let mut port2 = Port::<u8>::new(0x3D5);
@@ -67,21 +67,21 @@ impl CliContext {
             port2.write(((pos >> 8) & 0xFF) as u8);
         }
         //self.handle_cursor_color();
-    } */  
-    /*fn handle_cursor_color(&self){
+    }  
+    fn handle_cursor_color(&self){
         let mut writer_lock = WRITER.lock();
         let mut c = writer_lock.buffer.read_char(self.row_pos, self.col_pos);
         c.color_code = writer_lock.get_color();
         writer_lock.buffer.write_char(self.row_pos, self.col_pos, c);
-    }*/
+    }
 
-    /*fn move_cursor_at(&mut self, row : usize, col : usize){
+    fn move_cursor_at(&mut self, row : usize, col : usize){
         self.row_pos = row;
         self.col_pos = col;
         self.update_cursor();
-    }*/
+    }
 
-    /*pub fn move_cursor_by(&mut self, cursor_move : CursorMove, count : usize){
+    pub fn move_cursor_by(&mut self, cursor_move : CursorMove, count : usize){
         let pos = self.row_pos * BUFFER_WIDTH + self.col_pos;
         let max_pos = BUFFER_HEIGHT * BUFFER_WIDTH - 1;
         let new_pos = match cursor_move {
@@ -95,8 +95,8 @@ impl CliContext {
 
     pub fn move_cursor(&mut self, cursor_move : CursorMove){
         self.move_cursor_by(cursor_move, 1);
-    }*/
-//}
+    }
+}
 
 //pub static CLI_CURSOR : Mutex<Cursor> = Mutex::new(Cursor { row_pos: 0, col_pos: 0 });
 
@@ -108,7 +108,7 @@ lazy_static! {
         };
         Mutex::new(cli_context)
     };
-}
+}*/
 
 
 /*pub fn init_cli(){
