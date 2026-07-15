@@ -1,6 +1,6 @@
 use core::cmp;
 
-use alloc::{slice, string::{String, ToString}, vec::Vec};
+use alloc::{boxed::Box, slice, string::{String, ToString}, vec::Vec};
 use lazy_static::lazy_static;
 use shared_consts::{DIRENT_DIR, DIRENT_FILE, DirChild, PATH_NAME_MAX, Stat, StatMode};
 use spin::Mutex;
@@ -144,25 +144,31 @@ enum FileContent<'a> {
 }
 
 pub struct FileNode<'a> {
-    name : String,
+    name : String, // TODO : replace these with Box<str> to lower memory usage ?
     content : FileContent<'a>,
 }
 
 #[derive(Debug)]
 pub enum FileError {
     DirPathNotFound {
-        dir_not_found : String,
-        path : String,
+        dir_not_found : Box<str>,
+        path : Box<str>,
     },
     DirExpected {
-        file_should_be_dir : Option<String>,
-        path : String,
+        file_should_be_dir : Option<Box<str>>,
+        path : Box<str>,
     },
     FileExpected {
-        path : String,
+        path : Box<str>,
     },
     FileNotFound {
-        path : String,
+        path : Box<str>,
+    },
+    FileAlreadyExists {
+        path: Box<str>,
+    },
+    InvalidPath {
+        path: Box<str>,
     },
     FdNotFound,
 }
@@ -171,13 +177,27 @@ const EMPTY_CONTENT : &[u8] = &[];
 
 // TODO : have a fd to not have to resolve path for each file operation
 
+fn fix_error_with_path<T>(res : Result<T, FileError>, path : Box<str>) -> Result<T, FileError>{
+    match res {
+        Err(FileError::DirPathNotFound { dir_not_found, path: _ }) => Err(FileError::DirPathNotFound { dir_not_found, path }),
+        Err(FileError::DirExpected { file_should_be_dir, path: _ }) => Err(FileError::DirExpected { file_should_be_dir, path }),
+        Err(FileError::FileNotFound { path: _ }) => Err(FileError::FileNotFound { path }),
+        Err(FileError::FileAlreadyExists { path: _ }) => Err(FileError::FileAlreadyExists { path }),
+        f => f,
+    }
+}
+
 impl<'a> FileNode<'a> {
-    fn new_dir(name : String) -> FileNode<'a> {
-        let content = FileContent::Directory { children: Vec::new() };
+    fn new_dir_with_children(name : String, children : Vec<FileNode<'a>>) -> FileNode<'a> {
+        let content = FileContent::Directory { children };
         FileNode { 
             name, 
             content, 
         }
+    }
+
+    fn new_dir(name : String) -> FileNode<'a> {
+        Self::new_dir_with_children(name, Vec::new())
     }
 
     fn new_file_with_content(name : String, content : &'a [u8]) -> FileNode<'a> {
@@ -200,74 +220,86 @@ impl<'a> FileNode<'a> {
         matches!(self.content, FileContent::File { .. })
     }
 
-    // TODO : support dir
-    fn _create_file_with_content<'b>(&mut self, current_part : &'b str, mut rest_path : impl Iterator<Item = &'b str>, content : &'a [u8]){
-        match rest_path.next() {
+    fn _create_node<'b>(&mut self, current_part : &'b str, mut rest_path : impl Iterator<Item = &'b str>, content : FileContent<'a>, create_parents : bool) -> Result<(), FileError>{
+        let children = match &mut self.content {
+            FileContent::Directory { children } => children,
+            FileContent::File { .. } => return Err(FileError::DirExpected { file_should_be_dir: Some(Box::from(self.name.as_str())), path: Box::default() }),
+        };
+        
+        match rest_path.next(){
             Some(next_part) => {
-                match &mut self.content {
-                    FileContent::Directory { children } => {
-                        let child = match children.iter_mut().find(|f| f.name == current_part && f.is_dir()) {
-                            Some(c) => c,
-                            None => panic!("couldn't find {}", current_part), // TODO : better error handling
-                        };
-                        child._create_file_with_content(next_part, rest_path, content);
-                    }
-                    FileContent::File { .. } => panic!("expected a dir"), // TODO : replace with good error handling 
-                }
-            }
-            None => {
-                match &mut self.content {
-                    FileContent::Directory { children } => {
-                        let new_file = FileNode::new_file_with_content(current_part.to_string(), content);
-                        if children.iter().find(|f| f.name == current_part).is_some() {
-                            panic!("file already exists"); // TODO : better error handling
+                let child = match children.iter_mut().find(|f| f.name == current_part) {
+                    Some(c) => c,
+                    None => {
+                        if create_parents {
+                            let next_idx = children.len();
+                            children.push(FileNode::new_dir(current_part.to_string()));
+                            &mut children[next_idx]
+                        } else {
+                            return Err(FileError::DirPathNotFound { dir_not_found: Box::from(current_part), path: Box::default() })
                         }
-                        children.push(new_file);
-                    }
-                    FileContent::File { .. } => panic!("can't create a file in a file"), // TODO : better error handling
+                    },
+                };
+                child._create_node(next_part, rest_path, content, create_parents)?;
+            },
+            None => {
+                let new_file = match content {
+                    FileContent::Directory { children } => FileNode::new_dir_with_children(current_part.to_string(), children),
+                    FileContent::File { content } => FileNode::new_file_with_content(current_part.to_string(), content),
+                };
+                if children.iter().find(|f| f.name == current_part).is_some() {
+                    return Err(FileError::FileAlreadyExists { path: Box::default() });
                 }
+                children.push(new_file);
             }
         }
+        
+        Ok(())
     }
 
-    fn create_file_with_content(&mut self, path : &str, content : &'a [u8]){
+    fn create_node(&mut self, path : &str, content : FileContent<'a>, create_parents : bool) -> Result<(), FileError>{
         let mut split_path = path.split('/').filter(|part| !part.is_empty());
         let first_part = match split_path.next() {
             Some(first_part) => first_part,
-            None => panic!("empty path"), // TODO : better error handling
+            None => return Err(FileError::InvalidPath { path: Box::from(path) }),
         };
-        self._create_file_with_content(first_part, split_path, content);
+        let res = self._create_node(first_part, split_path, content, create_parents);
+        fix_error_with_path(res, Box::from(path))
     }
 
-    fn create_file(&mut self, path : &str){
-        self.create_file_with_content(path, EMPTY_CONTENT);
+    fn create_file_with_content(&mut self, path : &str, content : &'a [u8], create_parents : bool) -> Result<(), FileError>{
+        self.create_node(path, FileContent::File { content }, create_parents)
     }
+
+    fn create_file(&mut self, path : &str, create_parents : bool) -> Result<(), FileError> {
+        self.create_file_with_content(path, EMPTY_CONTENT, create_parents)
+    }
+
+    fn create_dir(&mut self, path : &str, create_parents : bool) -> Result<(), FileError>{
+        self.create_node(path, FileContent::Directory { children: Vec::new() }, create_parents)
+    }
+
 
     fn _get_file_node<'b>(&self, current_part : &'b str, mut rest_path : impl Iterator<Item = &'b str>) -> Result<&FileNode<'a>, FileError> {
-        match rest_path.next() {
-            Some(next_part) => {
-                match &self.content {
-                    FileContent::Directory { children } => {
+        match &self.content {
+            FileContent::Directory { children } => {
+                match rest_path.next(){
+                    Some(next_part) => {
                         let child = match children.iter().find(|f| f.name == current_part && f.is_dir()) {
                             Some(c) => c,
-                            None => return Err(FileError::DirPathNotFound { dir_not_found: current_part.to_string(), path: String::new() }), // the String::new() will be replaced in the wrapper
+                            None => return Err(FileError::DirPathNotFound { dir_not_found: Box::from(current_part), path: Box::default() }), // the String::new() will be replaced in the wrapper
                         };
                         child._get_file_node(next_part, rest_path)
-                    }
-                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: Some(self.name.clone()), path: String::new() }), // the String::new() will be replaced in the wrapper
-                }
-            }
-            None => {
-                match &self.content {
-                    FileContent::Directory { children } => {
+                    },
+                    None => {
                         match children.iter().find(|f| f.name == current_part){
                             Some(file) => Ok(file),
-                            None => Err(FileError::FileNotFound { path: String::new() }),
+                            None => Err(FileError::FileNotFound { path: Box::default() }),
                         }
                     }
-                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: Some(self.name.clone()), path: String::new() }),
                 }
             }
+            FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: Some(self.name.clone().into()), path: Box::default() }),
         }
     }
 
@@ -282,40 +314,30 @@ impl<'a> FileNode<'a> {
             Some(first_part) => first_part,
             None => return Ok(self),
         };
-
-        match self._get_file_node(first_part, split_path){
-            Err(FileError::DirPathNotFound { dir_not_found, path: _ }) => Err(FileError::DirPathNotFound { dir_not_found, path: path.to_string() }),
-            Err(FileError::DirExpected { file_should_be_dir, path: _ }) => Err(FileError::DirExpected { file_should_be_dir, path: path.to_string() }),
-            Err(FileError::FileNotFound { path: _ }) => Err(FileError::FileNotFound { path: path.to_string() }),
-            f => f,
-        }
+        let res = self._get_file_node(first_part, split_path);
+        fix_error_with_path(res, Box::from(path))
     }
 
     fn _get_file_node_mut<'b>(&mut self, current_part : &'b str, mut rest_path : impl Iterator<Item = &'b str>) -> Result<&mut FileNode<'a>, FileError> {
-        match rest_path.next() {
-            Some(next_part) => {
-                match &mut self.content {
-                    FileContent::Directory { children } => {
+        match &mut self.content {
+            FileContent::Directory { children } => {
+                match rest_path.next(){
+                    Some(next_part) => {
                         let child = match children.iter_mut().find(|f| f.name == current_part && f.is_dir()) {
                             Some(c) => c,
-                            None => return Err(FileError::DirPathNotFound { dir_not_found: current_part.to_string(), path: String::new() }),
+                            None => return Err(FileError::DirPathNotFound { dir_not_found: current_part.to_string().into(), path: Box::default() }),
                         };
                         child._get_file_node_mut(next_part, rest_path)
-                    }
-                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: Some(self.name.clone()), path: String::new() }), 
-                }
-            }
-            None => {
-                match &mut self.content {
-                    FileContent::Directory { children } => {
+                    },
+                    None => {
                         match children.iter_mut().find(|f| f.name == current_part){
                             Some(file) => Ok(file),
-                            None => Err(FileError::FileNotFound { path: String::new() }),
+                            None => Err(FileError::FileNotFound { path: Box::default() }),
                         }
                     }
-                    FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: Some(self.name.clone()), path: String::new() }),
                 }
             }
+            FileContent::File { .. } => Err(FileError::DirExpected { file_should_be_dir: Some(Box::from(self.name.as_str())), path: Box::default() }), 
         }
     }
 
@@ -331,12 +353,8 @@ impl<'a> FileNode<'a> {
             None => return Ok(self),
         };
 
-        match self._get_file_node_mut(first_part, split_path){
-            Err(FileError::DirPathNotFound { dir_not_found, path: _ }) => Err(FileError::DirPathNotFound { dir_not_found, path: path.to_string() }),
-            Err(FileError::DirExpected { file_should_be_dir, path: _ }) => Err(FileError::DirExpected { file_should_be_dir, path: path.to_string() }),
-            Err(FileError::FileNotFound { path: _ }) => Err(FileError::FileNotFound { path: path.to_string() }),
-            f => f,
-        }
+        let res = self._get_file_node_mut(first_part, split_path);
+        fix_error_with_path(res, Box::from(path))
     }
 
     pub fn read_dir_children(&self, path : &str, start_offset : usize, out : &mut [DirChild]) -> Result<usize, FileError> {
@@ -345,7 +363,7 @@ impl<'a> FileNode<'a> {
         let children = match &dir_node.content {
             FileContent::Directory { children } => children,
             FileContent::File { .. } => {
-                return Err(FileError::DirExpected { file_should_be_dir: None, path: path.to_string() })
+                return Err(FileError::DirExpected { file_should_be_dir: None, path: path.to_string().into() })
             }
         };
 
@@ -376,7 +394,7 @@ impl<'a> FileNode<'a> {
     fn get_file_content(&self, path : &str) -> Result<&'a [u8], FileError> {
         match &self.get_file_node(path)?.content {
             FileContent::File { content } => Ok(content),
-            FileContent::Directory { .. } => Err(FileError::FileExpected { path: path.to_string() }),
+            FileContent::Directory { .. } => Err(FileError::FileExpected { path: Box::from(path) }),
         }
     }
 }
@@ -390,7 +408,7 @@ lazy_static! {
 }
 
 fn fs_create_root_node(tar_initrd : TarInitrd<'static>) -> FileNode<'static> {
-    let mut file_node = FileNode::new_dir("<ROOT NODE>".to_string());
+    let mut root_node = FileNode::new_dir("<ROOT NODE>".to_string());
     for (idx, &file) in tar_initrd.headers.iter().enumerate() {
         serial_println!("file {} {} {}", idx, file.get_filename().unwrap(), file.size().unwrap());
     }
@@ -402,11 +420,17 @@ fn fs_create_root_node(tar_initrd : TarInitrd<'static>) -> FileNode<'static> {
         let path = &file.get_filename().unwrap()[1..];
         serial_println!("path : {}", path);
         if path != "/" {
-            file_node.create_file_with_content(path, file.content().unwrap());
+            let node_content = match file.typeflag[0] {
+                b'0' | 0 => FileContent::File { content: file.content().unwrap() },
+                b'5' => FileContent::Directory { children: Vec::new() },
+                _ => panic!("unsupported tag in initrd : {:?}", file.typeflag),
+            };
+            root_node.create_node(path, node_content, true).unwrap();  // TODO : better error handling ?
+            
         }
     }
     
-    file_node
+    root_node
 }
 
 
@@ -438,6 +462,7 @@ pub fn file_read_dir_children(path : &str, start_offset : usize, out : &mut [Dir
 }
 
 pub fn load_initrd_init() -> ! {
+    let init_path = "/init";
     let (entrypoint, process_pid) = {
         /*let tar_initrd = TAR_INITRD.lock();
         for (idx, &file) in tar_initrd.headers.iter().enumerate() {
@@ -445,11 +470,11 @@ pub fn load_initrd_init() -> ! {
         }*/
 
         let root_node = ROOT_NODE.lock();
-
-        let init_content = root_node.get_file_content("/init").unwrap();
+        
+        let init_content = root_node.get_file_content(init_path).unwrap();
         
 
-        let process_pid = Process::empty_process();
+        let process_pid = Process::empty_process("/".to_string());
 
 
         let elf = {
@@ -464,7 +489,8 @@ pub fn load_initrd_init() -> ! {
     {
         let mut scheduler_lock = SCHEDULER.lock();
         let process = process_pid.get_process_mut(&mut scheduler_lock.processes);
-        process.init_process(entrypoint as usize);
+        let args = &[init_path];
+        process.init_process(entrypoint as usize, args);
     };
     
     start_first_process(process_pid)

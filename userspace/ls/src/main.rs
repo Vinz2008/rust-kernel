@@ -1,11 +1,10 @@
 #![no_std]
 #![no_main]
 
-use rt::{self as _, println, shared_consts::{DirChild, READABLE}, syscall::{syscall_get_cwd, syscall_get_dir_children, syscall_open}};
+use rt::{self as _, Args, println, shared_consts::{DirChild, READABLE}, syscall::{syscall_get_cwd, syscall_get_dir_children, syscall_open}};
 
 #[unsafe(no_mangle)]
-pub extern "Rust" fn main() -> i32 {
-    // TODO : inherit cwd for child process to help for ls
+pub extern "Rust" fn main(args : Args<'_>) -> i32 {
     let current_cwd = syscall_get_cwd().unwrap();
     let current_dir_fd: rt::shared_consts::Fd = syscall_open(&current_cwd, READABLE).unwrap();
     let mut children = [DirChild {

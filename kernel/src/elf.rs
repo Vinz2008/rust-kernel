@@ -44,6 +44,7 @@ fn load_segment(content: &[u8], process : &Process, prog_header : &ProgramHeader
 
     // TODO : this is byte by byte copying, optimize it by copying page by page, because one page can't be non contiguous, but page by page it can't be
     for i in 0..memory_size {
+        // TODO : replace this pattern with translate_addr_in and write with a write_through_physical_mem
         let dst_virt_addr = VirtAddr::new((virt_addr as usize + i) as u64);
         let dst_phys = unsafe { translate_addr_in(process.page_table_phys, dst_virt_addr) }.unwrap(); // TODO : replace this unwrap with proper error handling ? (can it even fail because I just mapped the pages isn't it ?)
         let virt_ptr_of_phys = (PHYSICAL_MEMORY_OFFSET.get().unwrap().as_u64() + dst_phys.as_u64()) as *mut u8;

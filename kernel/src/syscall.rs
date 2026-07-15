@@ -1,7 +1,7 @@
 use core::{arch::naked_asm, ops::{ControlFlow, Deref, DerefMut}};
 
-use alloc::{slice, str};
-use shared_consts::{DirChild, Fd, READABLE, SHUTDOWN_SUCCESS, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat, WRITABLE};
+use alloc::{slice, str, vec::Vec};
+use shared_consts::{Arg, DirChild, Fd, READABLE, SHUTDOWN_SUCCESS, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat, WRITABLE};
 use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
 use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{process_close_file, process_get_dir_children, process_open_file}, initrd::{file_stat, get_file_content}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, qemu::{self, QemuExitCode}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
@@ -164,6 +164,14 @@ fn create_buf<'a, T>(buf_ptr : *mut T, buf_len : usize) -> Option<&'a mut [T]> {
     Some(slice)
 }
 
+fn create_buf_const<'a, T>(buf_ptr : *const T, buf_len : usize) -> Option<&'a [T]> {
+    if !check_ptr(buf_ptr as usize, buf_len * size_of::<T>(), true){
+        return None;
+    }
+    let slice = unsafe { slice::from_raw_parts(buf_ptr, buf_len) };
+    Some(slice)
+}
+
 fn syscall_print(regs : &mut SyscallRegs) -> Option<()> {
     let message_ptr = regs.get_arg(1) as *const u8;
     
@@ -181,20 +189,34 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
     let path_ptr = regs.get_arg(1) as *const u8;
     let path_len = regs.get_arg(2);
 
+    let args_ptr = regs.get_arg(3) as *const Arg;
+    let args_len = regs.get_arg(4);
+
     let path = create_str(path_ptr, path_len as usize)?;
+
+    let args = create_buf_const(args_ptr, args_len as usize)?;
+
+    
+    let args_strings = args.iter().map(|arg| create_str(arg.ptr, arg.len)).collect::<Option<Vec<_>>>()?; // TODO : optimize this ?
     
 
     // TODO : merge this with the init executing, by having an run_exe function in userspace.rs
     let file_content = get_file_content(path).ok()?;
 
     let new_proc_pid = interrupts::without_interrupts(|| {
-        let new_proc_pid = Process::empty_process();
+        let current_cwd_path = {
+            let scheduler_lock  = SCHEDULER.lock();
+            let current_proc = scheduler_lock.current_process.unwrap().get_process(&scheduler_lock.processes);
+            let current_cwd_path = current_proc.cwd_path.clone();
+            current_cwd_path
+        };
+        let new_proc_pid = Process::empty_process(current_cwd_path);
         let mut scheduler_lock = SCHEDULER.lock();
         let process = new_proc_pid.get_process(&scheduler_lock.processes);
 
         let elf = load_elf(file_content, process);
         let entrypoint = elf.ehdr.e_entry as usize;
-        new_proc_pid.get_process_mut(&mut scheduler_lock.processes).init_process(entrypoint);
+        new_proc_pid.get_process_mut(&mut scheduler_lock.processes).init_process(entrypoint, &args_strings);
         scheduler_lock.make_runnable(new_proc_pid);
         new_proc_pid
     });

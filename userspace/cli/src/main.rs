@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use rt::{self as _, alloc::string::String, print, println, shared_consts::BACKSPACE, syscall::{syscall_exec, syscall_get_char, syscall_print, syscall_stat, syscall_wait_pid}};
+use rt::{self as _, Args, alloc::string::String, print, println, shared_consts::BACKSPACE, syscall::{syscall_exec, syscall_get_char, syscall_print, syscall_stat, syscall_wait_pid}};
 
 fn handle_cli(cli : &str){
     let mut cli_split = cli.split_whitespace();
@@ -33,7 +33,7 @@ fn handle_cli(cli : &str){
             path.push_str(cmd_name);
             match syscall_stat(&path){
                 Some(_) => {
-                    let pid = syscall_exec(&path);
+                    let pid = syscall_exec(&path, &[&path]);
                     syscall_wait_pid(pid);
                 },
                 None => println!("unknown command : {}", cli),
@@ -44,7 +44,7 @@ fn handle_cli(cli : &str){
 }
 
 #[unsafe(no_mangle)]
-pub extern "Rust" fn main() -> i32 {
+pub extern "Rust" fn main(_args : Args<'_>) -> i32 {
     let mut cli = String::new();
     syscall_print("> ");
 

@@ -1,7 +1,8 @@
 use core::{hint::unreachable_unchecked, mem::MaybeUninit};
 
+use alloc::vec::Vec;
 use arrayvec::ArrayString;
-use shared_consts::{DirChild, Fd, PATH_MAX, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
+use shared_consts::{Arg, DirChild, Fd, PATH_MAX, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
 
 pub unsafe fn syscall0(syscall_nb : u64) -> u64 {
     let ret : u64;
@@ -57,6 +58,23 @@ pub unsafe fn syscall3(syscall_nb : u64, arg1 : u64, arg2 : u64, arg3 : u64) -> 
     ret
 }
 
+
+pub unsafe fn syscall4(syscall_nb : u64, arg1 : u64, arg2 : u64, arg3 : u64, arg4 : u64) -> u64 {
+    let ret : u64;
+    unsafe {
+        core::arch::asm!(
+            "int 0x80",
+            inlateout("rax") syscall_nb => ret,
+            in("rdi") arg1,
+            in("rsi") arg2,
+            in("rdx") arg3,
+            in("r10") arg4,
+            options(nostack)
+        );
+    }
+    ret
+}
+
 pub fn syscall_exit(status : i32) -> ! {
     unsafe { 
         syscall1(SYSCALL_EXIT, status as u64);
@@ -79,10 +97,13 @@ pub fn syscall_print(message : &str) -> Option<()> {
     }
 }
 
-pub fn syscall_exec(path : &str) -> u64 {
+pub fn syscall_exec(path : &str, args : &[&str]) -> u64 {
     let (path_ptr, path_len) = str_to_ptr_and_len(path);
+    let args_vec = args.iter().map(|arg| Arg { len: arg.len(), ptr: arg.as_ptr() }).collect::<Vec<_>>();
+    let args_ptr = args_vec.as_ptr() as u64;
+    let args_len = args.len() as u64;
     unsafe {
-        syscall2(SYSCALL_EXEC, path_ptr, path_len)
+        syscall4(SYSCALL_EXEC, path_ptr, path_len, args_ptr, args_len)
     }
 }
 

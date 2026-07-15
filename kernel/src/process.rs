@@ -1,10 +1,10 @@
-use core::num::NonZero;
+use core::{num::NonZero, ptr};
 
-use alloc::{string::{String, ToString}, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use shared_consts::{USER_HEAP_SIZE, USER_HEAP_START};
 use x86_64::{PhysAddr, VirtAddr, instructions::interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
-use crate::{allocator::{allocate_userspace_level_4_table, map_page_at_in, map_page_phys_at_in}, gdt::GDT, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main, with_scheduler_no_int}, userspace::USER_STACK_TOP, utils::Registers};
+use crate::{allocator::{allocate_userspace_level_4_table, map_page_at_in, map_page_phys_at_in}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main, with_scheduler_no_int}, userspace::USER_STACK_TOP, utils::Registers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pid(pub NonZero<usize>);
@@ -96,7 +96,7 @@ impl Process {
         stack_end
     }
 
-    pub fn empty_process() -> Pid {
+    pub fn empty_process(cwd_path : String) -> Pid {
         // TODO : use the dead process pid
         with_scheduler_no_int(|scheduler|{
             let new_process_idx = scheduler.processes.len();
@@ -122,7 +122,7 @@ impl Process {
                 process_kind: ProcessKind::User,
                 saved_regs: Registers::default(),
                 kernel_context: KernelContext::default(),
-                cwd_path: "/".to_string(),
+                cwd_path: cwd_path,
                 fd_list: Vec::new(),
                 heap_start: VirtAddr::new(USER_HEAP_START as u64),
                 heap_break: VirtAddr::new(USER_HEAP_START as u64),
@@ -186,17 +186,61 @@ impl Process {
         
     }
 
-    pub fn init_process(&mut self, entrypoint : usize){
+    fn write_to_process_stack_bytes(page_table : PhysFrame<Size4KiB>, stack_ptr : &mut u64, bytes : &[u8]){
+        unsafe {
+            *stack_ptr -= bytes.len() as u64;
+            let phys_ptr = translate_addr_in(page_table, VirtAddr::new(*stack_ptr)).unwrap(); // TODO : replace unwrap with real error handling ?
+            let real_ptr_addr = PHYSICAL_MEMORY_OFFSET.get().unwrap().as_u64() + phys_ptr.as_u64();
+            let real_ptr = real_ptr_addr as *mut u8;
+
+            ptr::copy_nonoverlapping(bytes.as_ptr(), real_ptr, bytes.len());
+        }
+    }
+
+    fn write_to_process_stack_u64(page_table : PhysFrame<Size4KiB>, stack_ptr : &mut u64, nb : u64){
+        let bytes = &nb.to_ne_bytes();
+        Self::write_to_process_stack_bytes(page_table, stack_ptr, bytes);
+    }
+
+    fn init_process_stack(&self, stack_top : usize, page_table : PhysFrame<Size4KiB>, args : &[&str]) -> usize {
+        let mut current_stack_ptr = stack_top as u64;
+        let mut args_ptr = Vec::with_capacity(args.len());
+        for arg in args.iter() {
+            Self::write_to_process_stack_bytes(page_table, &mut current_stack_ptr, arg.as_bytes());
+            args_ptr.push((current_stack_ptr, arg.len()));
+        }
+
+        // TODO : env vars ?
+
+        current_stack_ptr &= !0xf;
+
+        Self::write_to_process_stack_u64(page_table, &mut current_stack_ptr, 0);
+
+        for &(arg_ptr, arg_len) in args_ptr.iter().rev() {
+            Self::write_to_process_stack_u64(page_table, &mut current_stack_ptr, arg_ptr as u64);
+            Self::write_to_process_stack_u64(page_table, &mut current_stack_ptr, arg_len as u64);
+        }
+
+
+        Self::write_to_process_stack_u64(page_table, &mut current_stack_ptr, args.len() as u64);
+
+        debug_assert_eq!(current_stack_ptr % 16, 0);
+        current_stack_ptr as usize
+    }
+
+    pub fn init_process(&mut self, entrypoint : usize, args : &[&str]){
 
         let stack_segment = GDT.1.user_data_selector.0 as u64 | 3;
         let code_segment = GDT.1.user_code_selector.0 as u64 | 3;
         let rflags = RFlags::INTERRUPT_FLAG | RFlags::from_bits_truncate(0x2); // 0x2 is for the reserved bit that always need to be 1
 
-        let stack_addr = USER_STACK_TOP & !0xf; // 16 bytes align the stack, for syscall and iret
+        let stack_top = USER_STACK_TOP & !0xf; // 16 bytes align the stack, for syscall and iret
+        let rsp = self.init_process_stack(stack_top, self.page_table_phys, args);
+        //let rsp = stack_top;
 
         let saved_regs = Registers {
             rip: entrypoint as u64,
-            rsp: stack_addr as u64,
+            rsp: rsp as u64,
             cs: code_segment,
             ss: stack_segment,
             rflags: rflags.bits(),
