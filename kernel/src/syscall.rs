@@ -220,12 +220,12 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
         let mut scheduler_lock = SCHEDULER.lock();
         let process = new_proc_pid.get_process(&scheduler_lock.processes);
 
-        let elf = load_elf(file_content, process);
+        let elf = load_elf(file_content, process).ok()?; // TODO : in case like this in syscalls, instead of destroying the error and returning a non specific error to syscall, print the syscall error (in serial ? stdout ?) and then return the None
         let entrypoint = elf.ehdr.e_entry as usize;
         new_proc_pid.get_process_mut(&mut scheduler_lock.processes).init_process(entrypoint, &args_strings);
         scheduler_lock.make_runnable(new_proc_pid);
-        new_proc_pid
-    });
+        Some(new_proc_pid)
+    })?;
 
     Some(new_proc_pid.0.get() as u64)
 
