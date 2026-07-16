@@ -6,6 +6,8 @@ use x86_64::{VirtAddr, structures::paging::{Page, PageSize, PageTableFlags, Size
 use crate::{allocator::map_page_at_in, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, process::Process, serial_println, userspace::map_userspace_stack};
 
 
+// TODO : need as some point to enable the nx feature in the kernel main to have the no execute permission have an effect
+
 #[derive(Debug)]
 pub enum ElfError {
     ElfParsingErr(ParseError),
