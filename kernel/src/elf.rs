@@ -1,5 +1,7 @@
+use core::{cmp::min, ptr};
+
 use elf::{ElfBytes, endian::AnyEndian, segment::ProgramHeader};
-use x86_64::{VirtAddr, structures::paging::{Page, PageTableFlags, Size4KiB, mapper::MapToError}};
+use x86_64::{VirtAddr, structures::paging::{Page, PageSize, PageTableFlags, Size4KiB, mapper::MapToError}};
 
 use crate::{allocator::map_page_at_in, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, process::Process, serial_println, userspace::map_userspace_stack};
 
@@ -42,19 +44,49 @@ fn load_segment(content: &[u8], process : &Process, prog_header : &ProgramHeader
 
     let segment_off = prog_header.p_offset as usize;
 
-    // TODO : this is byte by byte copying, optimize it by copying page by page, because one page can't be non contiguous, but page by page it can't be
-    for i in 0..memory_size {
-        // TODO : replace this pattern with translate_addr_in and write with a write_through_physical_mem
-        let dst_virt_addr = VirtAddr::new((virt_addr as usize + i) as u64);
-        let dst_phys = unsafe { translate_addr_in(process.page_table_phys, dst_virt_addr) }.unwrap(); // TODO : replace this unwrap with proper error handling ? (can it even fail because I just mapped the pages isn't it ?)
-        let virt_ptr_of_phys = (PHYSICAL_MEMORY_OFFSET.get().unwrap().as_u64() + dst_phys.as_u64()) as *mut u8;
+    let phys_offset = PHYSICAL_MEMORY_OFFSET.get().unwrap().as_u64();
+
+    const PAGE_SIZE : usize = Size4KiB::SIZE as usize; // TODO : change this when adding big pages
+
+    let mut written = 0;
+
+    while written < file_size {
+        let dst_virt = start + written as u64;
+        let dst_phys = unsafe { translate_addr_in(process.page_table_phys, dst_virt) }.unwrap(); // TODO : replace this unwrap with proper error handling ? (can it even fail because I just mapped the pages isn't it ?)
+        let offset_in_page = dst_virt.as_u64() as usize & (PAGE_SIZE - 1);
+        let bytes_left_in_page = PAGE_SIZE - offset_in_page;
+        let chunk_len = min(bytes_left_in_page, file_size-written);
+
+        let dst_ptr = (phys_offset + dst_phys.as_u64()) as *mut u8;
+
         unsafe {
-            if i < file_size {
-                *virt_ptr_of_phys = content[segment_off + i];
-            } else {
-                *virt_ptr_of_phys = 0;
-            }
+            let src_ptr = content.as_ptr().add(segment_off + written);
+            ptr::copy_nonoverlapping(src_ptr, dst_ptr, chunk_len);
         }
+        
+        written += chunk_len;
+    }
+
+    let mut zero_written = 0;
+
+    let zero_size  = memory_size.checked_sub(file_size).unwrap(); // TODO : better error handling than unwrap
+
+    let start_zeros_ptr = start + file_size as u64;
+
+    while zero_written < zero_size {
+        let dst_virt = start_zeros_ptr + zero_written as u64;
+        let dst_phys = unsafe { translate_addr_in(process.page_table_phys, dst_virt) }.unwrap(); // TODO : replace this unwrap with proper error handling ? (can it even fail because I just mapped the pages isn't it ?)
+        let offset_in_page = dst_virt.as_u64() as usize & (PAGE_SIZE - 1);
+        let bytes_left_in_page = PAGE_SIZE - offset_in_page;
+        let chunk_len = min(bytes_left_in_page, zero_size - zero_written);
+
+        let dst_ptr = (phys_offset + dst_phys.as_u64()) as *mut u8;
+
+        unsafe {
+            ptr::write_bytes(dst_ptr, 0, chunk_len);
+        }
+
+        zero_written += chunk_len;
     }
 }
 

@@ -29,8 +29,9 @@ pub unsafe fn translate_addr_in(page_table_frame : PhysFrame, addr: VirtAddr) ->
         addr.p4_index(), addr.p3_index(), addr.p2_index(), addr.p1_index()
     ];
     let mut frame = page_table_frame;
+    let phys_off = *PHYSICAL_MEMORY_OFFSET.get().unwrap();
     for &index in &table_indexes {
-        let virt = *PHYSICAL_MEMORY_OFFSET.get().unwrap() + frame.start_address().as_u64();
+        let virt = phys_off + frame.start_address().as_u64();
         let table_ptr: *const PageTable = virt.as_ptr();
         let table = unsafe {&*table_ptr};
         let entry = &table[index];
