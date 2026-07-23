@@ -28,19 +28,6 @@ static ALLOCATOR : Allocator = Allocator(UnsafeCell::new(AllocatorState {
     free_list_start: None,
 }));
 
-impl Allocator {
-    fn get_free_list_start(&self) -> Option<NonNull<FreeListNode>> {
-        unsafe {
-            (&*self.0.get()).free_list_start
-        }
-    }
-
-    fn set_free_list_start(&self, start : Option<NonNull<FreeListNode>>){
-        unsafe {
-            (&mut *self.0.get()).free_list_start = start;
-        }
-    }
-}
 
 const fn align_up(addr: usize, align: usize) -> Option<usize> {
     if !align.is_power_of_two(){
@@ -52,13 +39,11 @@ const fn align_up(addr: usize, align: usize) -> Option<usize> {
     }
 }
 
-fn grow_heap(allocator : &Allocator, increment : usize) -> Option<()> {
+fn grow_heap(allocator : &mut AllocatorState, increment : usize) -> Option<()> {
     let old_brk = syscall_sbrk(increment as u64)? as usize;
     let new_brk = old_brk.checked_add(increment)?;
 
-    unsafe {
-        (&mut *allocator.0.get()).current_brk = new_brk;
-    }
+    allocator.current_brk = new_brk;
 
     add_free_region(allocator, old_brk, increment)?;
     Some(())
@@ -78,9 +63,9 @@ fn try_allocate_in_node(node : &FreeListNode, size : usize, align: usize) -> Opt
     }
 }
 
-fn find_free_node_alloc(allocator : &Allocator, size : usize, align: usize) -> Option<(NonNull<FreeListNode>, usize)> {
+fn find_free_node_alloc(allocator : &mut AllocatorState, size : usize, align: usize) -> Option<(NonNull<FreeListNode>, usize)> {
     let mut prev: Option<NonNull<FreeListNode>> = None;
-    let mut current = allocator.get_free_list_start();
+    let mut current = allocator.free_list_start;
 
     while let Some(mut node) = current {
         let node_ref = unsafe { node.as_mut() };
@@ -94,7 +79,7 @@ fn find_free_node_alloc(allocator : &Allocator, size : usize, align: usize) -> O
                     }
                 }
                 None => {
-                    allocator.set_free_list_start(next);
+                    allocator.free_list_start = next;
                 }
             }
             node_ref.next = None;
@@ -111,7 +96,7 @@ const HEAP_CHUNK_SIZE : usize = 4096; // TODO : instead of stable increment, mul
 
 const MIN_WORTHWHILE_BLOCK_SIZE : usize = 8;
 
-fn add_free_region(allocator : &Allocator, addr : usize, size : usize) -> Option<()> {
+fn add_free_region(allocator : &mut AllocatorState, addr : usize, size : usize) -> Option<()> {
     
     let aligned_addr = align_up(addr, align_of::<FreeListNode>())?;
     let padding = aligned_addr.checked_sub(addr)?;
@@ -121,7 +106,7 @@ fn add_free_region(allocator : &Allocator, addr : usize, size : usize) -> Option
         return Some(());
     }
     
-    let free_list_start = allocator.get_free_list_start();
+    let free_list_start = allocator.free_list_start;
     let new_block = FreeListNode {
         size,
         next: free_list_start,
@@ -130,22 +115,20 @@ fn add_free_region(allocator : &Allocator, addr : usize, size : usize) -> Option
     unsafe {
         new_block_ptr.write(new_block);
     }
-    let new_block_ptr = NonNull::new(new_block_ptr);
-    allocator.set_free_list_start(new_block_ptr);
+
+    allocator.free_list_start = NonNull::new(new_block_ptr);
     Some(())
 }
 
-fn init_allocator(allocator : &Allocator) -> Option<usize> {
+fn init_allocator(allocator : &mut AllocatorState) -> Option<usize> {
     let current_brk = syscall_sbrk(0)? as usize;
-    unsafe {
-        (&mut *allocator.0.get()).heap_start = current_brk;
-    }
+    allocator.heap_start = current_brk;
     grow_heap(allocator, HEAP_CHUNK_SIZE)?;
     
     Some(current_brk)
 }
 
-fn add_free_block_before_and_after(allocator : &Allocator, free_node : NonNull<FreeListNode>, alloc_ptr : usize, size : usize) -> Option<()> {
+fn add_free_block_before_and_after(allocator : &mut AllocatorState, free_node : NonNull<FreeListNode>, alloc_ptr : usize, size : usize) -> Option<()> {
     let region_start = free_node.as_ptr() as usize;
     let region_size = unsafe { free_node.as_ref().size };
     let region_end = region_start.checked_add(region_size)?;
@@ -170,12 +153,13 @@ unsafe impl GlobalAlloc for Allocator {
             return layout.align() as *mut u8;
         }
 
-        let current_brk = unsafe { (&*self.0.get()).current_brk };
-        if current_brk == 0 && init_allocator(self).is_none() {
+        let allocator_state = unsafe { &mut *self.0.get() };
+
+        if allocator_state.current_brk == 0 && init_allocator(allocator_state).is_none() {
             return null_mut()
         };
 
-        let (free_node, alloc_ptr) = match find_free_node_alloc(self, layout.size(), layout.align()){
+        let (free_node, alloc_ptr) = match find_free_node_alloc(allocator_state, layout.size(), layout.align()){
             Some((node, alloc)) => (node, alloc),
             None => {
                 let needed = match layout.size().checked_add(layout.align()-1) {
@@ -191,17 +175,17 @@ unsafe impl GlobalAlloc for Allocator {
                     Some(i) => i,
                     None => return null_mut(),
                 };
-                if grow_heap(self, increment).is_none() {
+                if grow_heap(allocator_state, increment).is_none() {
                     return null_mut();
                 }
-                match find_free_node_alloc(self, layout.size(), layout.align()){
+                match find_free_node_alloc(allocator_state, layout.size(), layout.align()){
                     Some((node, alloc)) => (node, alloc),
                     None => return null_mut(),
                 }
             }
         };
 
-        if add_free_block_before_and_after(self, free_node, alloc_ptr, layout.size()).is_none() {
+        if add_free_block_before_and_after(allocator_state, free_node, alloc_ptr, layout.size()).is_none() {
             return null_mut();
         }
 
@@ -213,6 +197,8 @@ unsafe impl GlobalAlloc for Allocator {
             return;
         }
 
-        let _ = add_free_region(self, ptr as usize, layout.size());
+        let allocator_state = unsafe { &mut *self.0.get() };
+
+        let _ = add_free_region(allocator_state, ptr as usize, layout.size());
     }
 }
