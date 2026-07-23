@@ -8,7 +8,7 @@ pub unsafe fn syscall0(syscall_nb : u64) -> u64 {
     let ret : u64;
     unsafe {
         core::arch::asm!(
-            "int 0x80",
+            "syscall",
             inlateout("rax") syscall_nb => ret,
             options(nostack)
         );
@@ -20,9 +20,11 @@ pub unsafe fn syscall1(syscall_nb : u64, arg1 : u64) -> u64 {
     let ret : u64;
     unsafe {
         core::arch::asm!(
-            "int 0x80",
+            "syscall",
             inlateout("rax") syscall_nb => ret,
             in("rdi") arg1,
+            lateout("rcx") _,
+            lateout("r11") _,
             options(nostack)
         );
     }
@@ -33,10 +35,12 @@ pub unsafe fn syscall2(syscall_nb : u64, arg1 : u64, arg2 : u64) -> u64 {
     let ret : u64;
     unsafe {
         core::arch::asm!(
-            "int 0x80",
+            "syscall",
             inlateout("rax") syscall_nb => ret,
             in("rdi") arg1,
             in("rsi") arg2,
+            lateout("rcx") _,
+            lateout("r11") _,
             options(nostack)
         );
     }
@@ -47,11 +51,13 @@ pub unsafe fn syscall3(syscall_nb : u64, arg1 : u64, arg2 : u64, arg3 : u64) -> 
     let ret : u64;
     unsafe {
         core::arch::asm!(
-            "int 0x80",
+            "syscall",
             inlateout("rax") syscall_nb => ret,
             in("rdi") arg1,
             in("rsi") arg2,
             in("rdx") arg3,
+            lateout("rcx") _,
+            lateout("r11") _,
             options(nostack)
         );
     }
@@ -63,12 +69,14 @@ pub unsafe fn syscall4(syscall_nb : u64, arg1 : u64, arg2 : u64, arg3 : u64, arg
     let ret : u64;
     unsafe {
         core::arch::asm!(
-            "int 0x80",
+            "syscall",
             inlateout("rax") syscall_nb => ret,
             in("rdi") arg1,
             in("rsi") arg2,
             in("rdx") arg3,
             in("r10") arg4,
+            lateout("rcx") _,
+            lateout("r11") _,
             options(nostack)
         );
     }

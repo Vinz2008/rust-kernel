@@ -10,6 +10,8 @@ use alloc::slice;
 pub use shared_consts;
 use shared_consts::Arg;
 
+use crate::syscall::syscall_exit;
+
 mod panic;
 mod allocator;
 pub mod syscall;
@@ -55,13 +57,7 @@ fn start_rt(initial_rsp: *const usize){
     };
 
     let exit = unsafe { main(args) };
-    unsafe {
-        core::arch::asm!(
-            "int 0x80",
-            in("rax") exit as usize,
-            options(noreturn),
-        );
-    }
+    syscall_exit(exit)
 }
 
 #[unsafe(no_mangle)]

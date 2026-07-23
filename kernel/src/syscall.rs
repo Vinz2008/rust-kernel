@@ -53,6 +53,73 @@ pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
     )
 }
 
+const USER_CS: u64 = 0x23;
+const USER_SS: u64 = 0x1b;
+
+// TODO : after adding multiple cpu support, make this per cpu (gs infos, then use the user_rsp and kernel_rsp with the gs reg)
+#[unsafe(no_mangle)]
+pub static mut SYSCALL_USER_RSP: u64 = 0;
+
+#[unsafe(no_mangle)]
+pub static mut SYSCALL_KERNEL_RSP: u64 = 0;
+
+#[unsafe(naked)]
+pub unsafe extern "C" fn syscall_instr_entry(){
+    naked_asm!(
+        "
+        mov qword ptr [rip + {user_rsp}], rsp
+        mov rsp, qword ptr [rip + {kernel_rsp}]
+
+        push {user_ss}
+        push qword ptr [rip + {user_rsp}]
+        push r11
+        push {user_cs}
+        push rcx
+        
+        push rax
+        push rbx
+        push rcx
+        push rdx
+        push rsi
+        push rdi
+        push rbp
+        push r8
+        push r9
+        push r10
+        push r11
+        push r12
+        push r13
+        push r14
+        push r15
+
+        mov rdi, rsp
+        call {handler}
+
+        pop r15
+        pop r14
+        pop r13
+        pop r12
+        pop r11
+        pop r10
+        pop r9
+        pop r8
+        pop rbp
+        pop rdi
+        pop rsi
+        pop rdx
+        pop rcx
+        pop rbx
+        pop rax
+        iretq
+        ",
+        user_cs = const USER_CS,
+        user_ss = const USER_SS,
+        handler = sym syscall_interrupt_handler,
+        user_rsp = sym SYSCALL_USER_RSP,
+        kernel_rsp = sym SYSCALL_KERNEL_RSP,
+    )
+}
+
 #[repr(transparent)]
 struct SyscallRegs(Registers);
 

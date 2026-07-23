@@ -14,6 +14,7 @@ arrayvec = { version = "0.7.6", default-features = false }
 linked_list_allocator = "0.10.6"
 elf = { version = "0.8.0", default-features = false, features = ["alloc", "to_str"] } # TODO : try to remove alloc feature ? and the to_str feature ?
 shared_consts = { path = "../shared_consts" }
+raw-cpuid = "11.6.0"
 
 [dependencies.lazy_static]
 version = "1.0"

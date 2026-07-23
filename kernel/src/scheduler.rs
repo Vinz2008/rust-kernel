@@ -4,7 +4,7 @@ use alloc::{collections::vec_deque::VecDeque, vec::Vec};
 use spin::Mutex;
 use x86_64::{instructions::interrupts::{self, without_interrupts}, registers::control::{Cr3, Cr3Flags}};
 
-use crate::{gdt::set_tss_privilege_stack, process::{Pid, Process}, serial_println, utils::Registers};
+use crate::{gdt::set_tss_privilege_stack, process::{Pid, Process}, serial_println, syscall::SYSCALL_KERNEL_RSP, utils::Registers};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum SchedulerState {
@@ -73,9 +73,13 @@ pub fn start_first_process(pid : Pid) -> ! {
 
         let process = pid.get_process(&scheduler_lock.processes);
         set_tss_privilege_stack(process.kernel_stack_top);
+
         (process.page_table_phys, process.kernel_stack_top, process.saved_regs)
-        
     };
+
+    unsafe {
+        SYSCALL_KERNEL_RSP = kernel_stack_top.as_u64();
+    }
 
     x86_64::instructions::interrupts::enable();
     
@@ -174,6 +178,9 @@ fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, nex
 
     match next_process.state {
         SchedulerState::Ready(ReadyMode::User) => {
+            unsafe {
+                SYSCALL_KERNEL_RSP = next_process.kernel_stack_top.as_u64();
+            }
             let next_regs = next_process.saved_regs;
             match regs {
                 Some(regs) => {

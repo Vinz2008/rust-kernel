@@ -14,7 +14,7 @@ extern crate alloc;
 use bootloader::{BootInfo, entry_point};
 use x86_64::VirtAddr;
 
-use crate::{gdt::init_tss, initrd::load_initrd_init, process::Process, utils::hlt_loop};
+use crate::{gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall, process::Process, utils::hlt_loop};
 
 
 mod tests;
@@ -36,6 +36,8 @@ mod interrupts;
 mod pic;
 
 mod gdt;
+
+mod msr;
 
 mod paging;
 mod allocator;
@@ -68,6 +70,8 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     interrupts::init_idt();
 
     init_tss();
+
+    enable_syscall();
 
     unsafe { pic::PICS.lock().initialize() };
 
