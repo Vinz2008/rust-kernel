@@ -14,6 +14,7 @@ pub struct FreeListNode {
 }
 
 // TODO : use a fixed-size approach by rounding to power of 2 ?
+// TODO : real thread safety
 
 #[global_allocator]
 static ALLOCATOR : Allocator = Allocator {
@@ -103,7 +104,7 @@ fn find_free_node_alloc(allocator : &Allocator, size : usize, align: usize) -> O
     None
 }
 
-const HEAP_CHUNK_SIZE : usize = 4096;
+const HEAP_CHUNK_SIZE : usize = 4096; // TODO : instead of stable increment, multiply the size (or the increment ?) of the heap
 
 const MIN_WORTHWHILE_BLOCK_SIZE : usize = 8;
 
@@ -170,7 +171,7 @@ unsafe impl GlobalAlloc for Allocator {
         let (free_node, alloc_ptr) = match find_free_node_alloc(self, layout.size(), layout.align()){
             Some((node, alloc)) => (node, alloc),
             None => {
-                let needed = match layout.size().checked_add(layout.align()) {
+                let needed = match layout.size().checked_add(layout.align()-1) {
                     Some(n) => n,
                     None => return null_mut(),
                 };
@@ -200,7 +201,11 @@ unsafe impl GlobalAlloc for Allocator {
         alloc_ptr as *mut u8
     }
 
-    unsafe fn dealloc(&self, _ptr: *mut u8, _layout: core::alloc::Layout) {
-        // TODO : add freelist for freeing ?
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
+        if layout.size() == 0 {
+            return;
+        }
+
+        let _ = add_free_region(self, ptr as usize, layout.size());
     }
 }

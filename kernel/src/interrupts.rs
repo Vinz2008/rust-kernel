@@ -27,7 +27,6 @@ lazy_static! {
         }
         idt[InterruptIndex::Keyboard as u8].set_handler_fn(keyboard_interrupt_handler);
 
-        // TODO : add also syscall instruction support
         unsafe {
             idt[InterruptIndex::Syscall as u8].set_handler_addr(VirtAddr::new(syscall_interrupt_stub as *const () as u64)).set_privilege_level(PrivilegeLevel::Ring3).disable_interrupts(false);
         }
