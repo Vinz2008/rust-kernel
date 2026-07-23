@@ -1,7 +1,5 @@
-use core::arch::naked_asm;
-
 use raw_cpuid::{CpuId, CpuIdReaderNative};
-use x86_64::{VirtAddr, registers::{control::{Efer, EferFlags}, model_specific::{LStar, SFMask, Star}, rflags::RFlags}, structures::gdt::SegmentSelector};
+use x86_64::{VirtAddr, registers::{control::{Efer, EferFlags}, model_specific::{LStar, SFMask, Star}, rflags::RFlags}};
 
 use crate::{gdt::GDT, syscall::syscall_instr_entry};
 

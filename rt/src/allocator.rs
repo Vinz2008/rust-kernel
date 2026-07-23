@@ -1,12 +1,17 @@
-use core::{alloc::GlobalAlloc, ptr::{NonNull, null_mut}, sync::atomic::{AtomicPtr, AtomicUsize, Ordering}};
+use core::{alloc::GlobalAlloc, cell::UnsafeCell, ptr::{NonNull, null_mut}};
 
 use crate::syscall::syscall_sbrk;
 
-struct Allocator {
-    heap_start : AtomicUsize,
-    current_brk : AtomicUsize,
-    free_list_start : AtomicPtr<FreeListNode>,
+struct AllocatorState {
+    heap_start : usize,
+    current_brk : usize,
+    free_list_start : Option<NonNull<FreeListNode>>,
 }
+
+struct Allocator(UnsafeCell<AllocatorState>);
+
+
+unsafe impl Sync for Allocator {}
 
 pub struct FreeListNode {
     size : usize,
@@ -17,27 +22,23 @@ pub struct FreeListNode {
 // TODO : real thread safety
 
 #[global_allocator]
-static ALLOCATOR : Allocator = Allocator {
-    heap_start: AtomicUsize::new(0),
-    current_brk: AtomicUsize::new(0),
-    free_list_start: AtomicPtr::new(null_mut()),
-};
+static ALLOCATOR : Allocator = Allocator(UnsafeCell::new(AllocatorState {
+    heap_start: 0,
+    current_brk: 0,
+    free_list_start: None,
+}));
 
 impl Allocator {
     fn get_free_list_start(&self) -> Option<NonNull<FreeListNode>> {
-        let free_list_start_ptr = self.free_list_start.load(Ordering::Relaxed);
-        match free_list_start_ptr as usize {
-            0 => None,
-            _ =>  Some(NonNull::new(free_list_start_ptr)?),
+        unsafe {
+            (&*self.0.get()).free_list_start
         }
     }
 
     fn set_free_list_start(&self, start : Option<NonNull<FreeListNode>>){
-        let start_ptr = match start {
-            Some(start) => start.as_ptr(),
-            None => null_mut(),
-        };
-        self.free_list_start.store(start_ptr, Ordering::Relaxed);
+        unsafe {
+            (&mut *self.0.get()).free_list_start = start;
+        }
     }
 }
 
@@ -55,7 +56,9 @@ fn grow_heap(allocator : &Allocator, increment : usize) -> Option<()> {
     let old_brk = syscall_sbrk(increment as u64)? as usize;
     let new_brk = old_brk.checked_add(increment)?;
 
-    allocator.current_brk.store(new_brk, Ordering::Relaxed);
+    unsafe {
+        (&mut *allocator.0.get()).current_brk = new_brk;
+    }
 
     add_free_region(allocator, old_brk, increment)?;
     Some(())
@@ -127,13 +130,16 @@ fn add_free_region(allocator : &Allocator, addr : usize, size : usize) -> Option
     unsafe {
         new_block_ptr.write(new_block);
     }
-    allocator.free_list_start.store(new_block_ptr, Ordering::Relaxed);
+    let new_block_ptr = NonNull::new(new_block_ptr);
+    allocator.set_free_list_start(new_block_ptr);
     Some(())
 }
 
 fn init_allocator(allocator : &Allocator) -> Option<usize> {
     let current_brk = syscall_sbrk(0)? as usize;
-    allocator.heap_start.store(current_brk, Ordering::Relaxed);
+    unsafe {
+        (&mut *allocator.0.get()).heap_start = current_brk;
+    }
     grow_heap(allocator, HEAP_CHUNK_SIZE)?;
     
     Some(current_brk)
@@ -164,7 +170,8 @@ unsafe impl GlobalAlloc for Allocator {
             return layout.align() as *mut u8;
         }
 
-        if self.current_brk.load(Ordering::Relaxed) == 0 && init_allocator(self).is_none() {
+        let current_brk = unsafe { (&*self.0.get()).current_brk };
+        if current_brk == 0 && init_allocator(self).is_none() {
             return null_mut()
         };
 
