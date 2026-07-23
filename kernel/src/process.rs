@@ -72,7 +72,6 @@ impl OpenedFile {
 const KERNEL_PROC_STACK_BASE: u64 = 0xffff_8000_0000_0000;
 
 const KERNEL_PROC_STACK_SIZE: u64 = 32 * 1024; // 8 pages
-// TODO : add stack guard for kernel stack
 
 const KERNEL_PROC_STACK_GUARD_SIZE: u64 = 4096; // 1 page
 

@@ -4,7 +4,8 @@
 0x0000_0000_000b_8fa0 - 0x0000_0000_0020_0000 : empty
 0x0000_0000_0020_0000 - ...                    : userspace ELF LOAD segments
 0x0000_0000_4000_0000 - 0x0000_0000_8000_0000 : user heap, 1 GiB
-0x0000_0000_8000_0000 - 0x0000_7fff_fffe_f000 : empty
+0x0000_0000_8000_0000 - 0x0000_7fff_ffef_e000 : empty
+0x0000_7fff_ffef_e000 - 0x0000_7fff_ffef_f000 : guard page (4 KiB, unmapped)
 0x0000_7fff_ffef_f000 - 0x0000_7fff_ffff_f000 : user process stack (1MiB)
 0x0000_7fff_ffff_f000 - 0x0000_8000_0000_0000 : empty
 
