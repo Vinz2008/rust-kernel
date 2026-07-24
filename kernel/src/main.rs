@@ -14,7 +14,7 @@ extern crate alloc;
 use bootloader::{BootInfo, entry_point};
 use x86_64::VirtAddr;
 
-use crate::{gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall, process::Process, utils::hlt_loop};
+use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall, process::Process, utils::hlt_loop};
 
 
 mod tests;
@@ -38,6 +38,8 @@ mod pic;
 mod gdt;
 
 mod msr;
+mod acpi;
+mod apic;
 
 mod paging;
 mod allocator;
@@ -73,6 +75,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     enable_syscall();
 
+    // TODO : remove pic initialization in the future (just disable it using the .lock().disable(), is small enough that I can just implement it without deps)
     unsafe { pic::PICS.lock().initialize() };
 
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
@@ -81,7 +84,14 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     let frame_allocator = unsafe { paging::BootInfoFrameAllocator::init(&boot_info.memory_map) };
 
     allocator::init_heap(mapper, frame_allocator).expect("heap initialization failed");
+
+    let acpi_tables = init_acpi().unwrap();
     
+    init_apic(acpi_tables).unwrap();
+
+    // TODO : after finishing enabling the apic, enable this
+    //unsafe { pic::PICS.lock().disable() };
+
     Process::init_idle_process();
     
     load_initrd_init();

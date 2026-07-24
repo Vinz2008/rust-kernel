@@ -3,6 +3,20 @@
 version = 4
 
 [[package]]
+name = "acpi"
+version = "6.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b763acdc1d85c36d61acf97a59938f23202d0e8efe45e8759de10c02db242744"
+dependencies = [
+ "bit_field",
+ "bitflags",
+ "byteorder",
+ "log",
+ "pci_types",
+ "spinning_top 0.3.0",
+]
+
+[[package]]
 name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -25,6 +39,12 @@ name = "bootloader"
 version = "0.9.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13f6a8a495d2f93fe3d6eb3a224f9aa749a63cfd746ed03eb5ddcbd00ade7d8f"
+
+[[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "cli"
@@ -67,7 +87,7 @@ version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b23ac50abb8261cb38c6e2a7192d3302e0836dac1628f6a93b82b4fad185897"
 dependencies = [
- "spinning_top",
+ "spinning_top 0.2.5",
 ]
 
 [[package]]
@@ -78,6 +98,12 @@ checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
 dependencies = [
  "scopeguard",
 ]
+
+[[package]]
+name = "log"
+version = "0.4.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
 
 [[package]]
 name = "ls"
@@ -91,6 +117,16 @@ name = "pc-keyboard"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73c53b65bbadd653c9d125e745d2659a3a060539b17d96ab1c59f9f5bfdacce5"
+
+[[package]]
+name = "pci_types"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0c2a105c657261a938ff68ee231c199a3d80eef33976004829de761ef5b1a9b"
+dependencies = [
+ "bit_field",
+ "bitflags",
+]
 
 [[package]]
 name = "pic8259"
@@ -122,6 +158,7 @@ dependencies = [
 name = "rust-kernel"
 version = "0.1.0"
 dependencies = [
+ "acpi",
  "arrayvec",
  "bootloader",
  "elf",
@@ -179,6 +216,15 @@ name = "spinning_top"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b9eb1a2f4c41445a3a0ff9abc5221c5fcd28e1f13cd7c0397706f9ac938ddb0"
+dependencies = [
+ "lock_api",
+]
+
+[[package]]
+name = "spinning_top"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d96d2d1d716fb500937168cc09353ffdc7a012be8475ac7308e1bdf0e3923300"
 dependencies = [
  "lock_api",
 ]
