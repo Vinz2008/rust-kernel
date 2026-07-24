@@ -1,6 +1,6 @@
 use bootloader::{bootinfo::{MemoryMap, MemoryRegionType}};
 use spin::Once;
-use x86_64::{PhysAddr, VirtAddr, registers::control::Cr3, structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB, page_table::FrameError}};
+use x86_64::{PhysAddr, VirtAddr, align_up, registers::control::Cr3, structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB, page_table::FrameError}};
 
 use crate::allocator::pml4_index;
 
@@ -52,39 +52,65 @@ pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static>
     }
 }
 
+// TODO : only use it the current page strategy to allocate the bitmap for better frame allocation which support frame deallocation
 // TODO huge pages (2 MiB)
 
 pub struct BootInfoFrameAllocator {
     memory_map: &'static MemoryMap,
-    next: usize,
+    region_idx : usize,
+    next_addr: usize,
 }
 
 impl BootInfoFrameAllocator {
     pub unsafe fn init(memory_map : &'static MemoryMap) -> BootInfoFrameAllocator {
         BootInfoFrameAllocator {
             memory_map,
-            next: 0
+            region_idx: 0,
+            next_addr: 0,
         }
     }
 
-    fn usable_frames(&self) -> impl Iterator<Item = PhysFrame> {
+    /*fn usable_frames(&self) -> impl Iterator<Item = PhysFrame> {
         let regions = self.memory_map.iter();
         let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
         let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
-        const PAGE_SIZE : usize = 4096; // TODO : change this when using huge pages (pass through args ?)
+        
         let frame_addresses = addr_ranges.flat_map(|r| r.step_by(PAGE_SIZE));
         frame_addresses.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
-    }
+    }*/
 
     pub fn get_memory_map_pml4_index(&self) -> usize {
         pml4_index(self.memory_map as *const _ as u64)
     }
 }
 
+const PAGE_SIZE : usize = 4096; // TODO : change this when using huge pages (pass through args ?)
+
 unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame> {
-        let frame = self.usable_frames().nth(self.next); // TODO : cache the usable frames iter (according to tutorial phil-opp.cpp not possible because of lack of named existential types), or I could rework the api to not return an iter ?
-        self.next += 1;
-        frame
+        loop {
+            let region = self.memory_map[self.region_idx];
+            if region.region_type != MemoryRegionType::Usable {
+                self.region_idx += 1;
+                self.next_addr = 0;
+                continue;
+            }
+            if self.next_addr == 0 {
+                self.next_addr = align_up(region.range.start_addr(), PAGE_SIZE as u64) as usize;
+            }
+            
+            let frame_end = self.next_addr.checked_add(PAGE_SIZE)?;
+
+
+            let region_end = region.range.end_addr() as usize;
+            if frame_end <= region_end {
+                let frame = PhysFrame::from_start_address(PhysAddr::new(self.next_addr as u64)).ok()?;
+                self.next_addr = frame_end;
+                return Some(frame);
+            } else {
+                self.region_idx += 1;
+                self.next_addr = 0;
+            }
+        }
     }
 }
