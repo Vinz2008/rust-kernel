@@ -90,6 +90,8 @@ impl LocalApicRegisters {
 #[derive(Clone)]
 pub struct LocalApic(VirtAddr);
 
+
+const MASKED: u32 = 1 << 16;
 const LAPIC_ENABLE: u32 = 1 << 8;
 const SPURIOUS_VECTOR: u8 = 0xff;
 
@@ -110,6 +112,12 @@ impl LocalApic {
         regs.task_priority.write(0);
 
         regs.spurious_interrupt_vector.write(LAPIC_ENABLE | SPURIOUS_VECTOR as u32);
+        regs.thermal_lvt.write(MASKED); // TODO ?
+        regs.performance_lvt.write(MASKED); // TODO ?
+        regs.lint0_lvt.write(MASKED); // TODO ?
+        regs.lint1_lvt.write(MASKED); // TODO ?
+
+        regs.timer_lvt.write(MASKED); // TODO : instead of routing the pic timer to the normal pit, use the real apic timer (need LAPIC time regs)
         let _ = regs.id.read();
     }
 }
@@ -121,8 +129,6 @@ struct IoApic {
     base: VirtAddr,
     gsi_base: u32,
 }
-
-const IOAPIC_MASKED: u32 = 1 << 16;
 
 impl IoApic {
 
@@ -149,7 +155,7 @@ impl IoApic {
         let idx = (gsi - self.gsi_base);
         let low_reg = (0x10 + idx * 2) as u8;
         let high_reg = low_reg + 1;
-        self.write_register(low_reg, vec as u32 | IOAPIC_MASKED);
+        self.write_register(low_reg, vec as u32 | MASKED);
         self.write_register(high_reg, (dest_apic_id as u32) << 24);
         self.write_register(low_reg, vec as u32);
     }
