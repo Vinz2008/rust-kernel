@@ -89,8 +89,6 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     
     init_apic(acpi_tables).unwrap();
 
-    // TODO : after finishing enabling the apic, enable this
-    //unsafe { pic::PICS.lock().disable() };
 
     Process::init_idle_process();
     

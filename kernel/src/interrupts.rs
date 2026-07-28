@@ -4,7 +4,7 @@ use pc_keyboard::{DecodedKey, HandleControl, KeyCode, PS2Keyboard, ScancodeSet1,
 use spin::Mutex;
 use x86_64::{PrivilegeLevel, VirtAddr, instructions::port::Port, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
-use crate::{backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, ringbuf::RingBuf, scheduler::{SCHEDULER, kill_current_and_schedule, schedule}, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
+use crate::{apic::{HAS_ENABLED_APIC, LOCAL_APIC}, backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, ringbuf::RingBuf, scheduler::{SCHEDULER, kill_current_and_schedule, schedule}, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -12,6 +12,7 @@ pub enum InterruptIndex {
     Timer = PIC_1_OFFSET,
     Keyboard,
     Syscall = 0x80,
+    Spurious = 0xFF, // only for APIC
 }
 
 lazy_static! {
@@ -31,8 +32,21 @@ lazy_static! {
             idt[InterruptIndex::Syscall as u8].set_handler_addr(VirtAddr::new(syscall_interrupt_stub as *const () as u64)).set_privilege_level(PrivilegeLevel::Ring3).disable_interrupts(false);
         }
 
+        idt[InterruptIndex::Spurious as u8].set_handler_fn(spurious_interrupt_handler);
+
         idt
     };
+}
+
+pub fn end_of_interrupt(interrupt_idx : InterruptIndex){
+    let has_enabled_apic = HAS_ENABLED_APIC.load(Ordering::Relaxed);
+    if has_enabled_apic {
+        LOCAL_APIC.get().unwrap().lock().end_of_interrupt();
+    } else {
+        unsafe {
+            PICS.lock().notify_end_of_interrupt(interrupt_idx as u8);
+        }
+    }
 }
 
 pub fn init_idt() {
@@ -137,15 +151,13 @@ static TICKS: AtomicU64 = AtomicU64::new(0);
 const TICKS_EACH_SCHEDULE: u64 = 10; // TODO : reprogram pic to 100 Hz
 
 fn timer_interrupt_handler(regs : &mut Registers){
-    //print!(".");
-    unsafe {
-        PICS.lock()
-            .notify_end_of_interrupt(InterruptIndex::Timer as u8);
-    }
+    let tick = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
 
-    let tick = TICKS.fetch_add(1, Ordering::Relaxed);
+    let should_schedule = tick.is_multiple_of(TICKS_EACH_SCHEDULE) && is_from_userspace(regs.cs);
 
-    if tick.is_multiple_of(TICKS_EACH_SCHEDULE) && is_from_userspace(regs.cs) {
+    end_of_interrupt(InterruptIndex::Timer);
+
+    if should_schedule {
         // timer in user code
         schedule(regs);
     }
@@ -214,8 +226,8 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
         }
     }
 
-    unsafe {
-        PICS.lock()
-            .notify_end_of_interrupt(InterruptIndex::Keyboard as u8);
-    }
+    end_of_interrupt(InterruptIndex::Keyboard);
+}
+
+extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStackFrame) {
 }
