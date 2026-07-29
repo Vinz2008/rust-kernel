@@ -1,6 +1,4 @@
-# Syscalls
-
-## ABI
+# ABI
 
 syscall nb : rax
 arg 1 : rdi
@@ -10,13 +8,13 @@ arg 4 : r10
 arg 5 : r8
 arg 6 : r9
 
-## types in syscall list
+# types in syscall list
 ! = never type (never returns)
 Other types are standard C types
 
-## Syscalls list
+# Syscalls list
 
-### exit - syscall 0
+## exit - syscall 0
 ! exit(uint64_t code)
 
 Returns:  
@@ -25,7 +23,7 @@ Returns:
 Description:
 Exits the current process with the code given.
 
-### print - syscall 1
+## print - syscall 1
 uint64_t print(const uint8_t* message_ptr, uint64_t message_len)
 Returns:  
     0 if success  
@@ -34,7 +32,7 @@ Returns:
 Description:
 Prints to the standard output of the terminal.
 
-### exec - syscall 2
+## exec - syscall 2
 
 uint64_t exec(const uint8_t* path_ptr, uint64_t path_len, const uint8_t args_ptr, uint64_t args_len)
 
@@ -45,39 +43,39 @@ Returns:
 Description:
 Creates a process, launch it and return the pid.
 
-### get_char - syscall 3
+## get_char - syscall 3
 
 TODO
 
-### wait_pid - syscall 4
+## wait_pid - syscall 4
 
 TODO
 
-### stat - syscall 5
+## stat - syscall 5
 
 TODO
 
-### open - syscall 6
+## open - syscall 6
 
 TODO
 
-### close - syscall 7
+## close - syscall 7
 
 TODO
 
-### get_cwd - syscall 8
+## get_cwd - syscall 8
 
 TODO
 
-### get_dir_children - syscall 9
+## get_dir_children - syscall 9
 
 TODO
 
-### sbrk - syscall 10
+## sbrk - syscall 10
 
 TODO
 
-### shutdown - syscall 11
+## shutdown - syscall 11
 
 TODO
 
