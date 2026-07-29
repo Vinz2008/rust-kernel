@@ -1,6 +1,6 @@
 use core::cmp;
 
-use alloc::{boxed::Box, slice, string::{String, ToString}, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, format, slice, string::{String, ToString}, vec::Vec};
 use lazy_static::lazy_static;
 use shared_consts::{DIRENT_DIR, DIRENT_FILE, DirChild, PATH_NAME_MAX, Stat, StatMode};
 use spin::Mutex;
@@ -57,9 +57,15 @@ fn parse_octal(buf : &[u8]) -> Result<u64, TarError> {
 
 impl TarHeader {
     // filename is max 256 chars
-    // TODO : use also the prefix ?
-    pub fn get_filename(&self) -> Result<&str, TarError> { 
-        str::from_utf8(trim_right_nul(&self.filename)).map_err(|_| TarError::InvalidUtf8)
+    pub fn get_filename(&self) -> Result<Cow<'_, str>, TarError> { 
+        let filename = str::from_utf8(trim_right_nul(&self.filename)).map_err(|_| TarError::InvalidUtf8)?;
+        let prefix = str::from_utf8(trim_right_nul(&self.prefix)).map_err(|_| TarError::InvalidUtf8)?;
+        let res = if prefix.is_empty(){
+            Cow::Borrowed(filename)
+        } else {
+            Cow::Owned(format!("{}/{}", prefix, filename))
+        };
+        Ok(res)
     }
 
     pub fn size(&self) -> Result<usize, TarError> {
@@ -410,13 +416,13 @@ lazy_static! {
 fn fs_create_root_node(tar_initrd : TarInitrd<'static>) -> FileNode<'static> {
     let mut root_node = FileNode::new_dir("<ROOT NODE>".to_string());
     for (idx, &file) in tar_initrd.headers.iter().enumerate() {
-        serial_println!("file {} {} {}", idx, file.get_filename().unwrap(), file.size().unwrap());
+        serial_println!("file {} {} {}", idx, file.get_filename().unwrap().as_ref(), file.size().unwrap());
     }
 
     serial_println!("TEST");
     
     for (idx, &file) in tar_initrd.headers.iter().enumerate() {
-        serial_println!("file {} {} {}", idx, file.get_filename().unwrap(), file.size().unwrap());
+        serial_println!("file {} {} {}", idx, file.get_filename().unwrap().as_ref(), file.size().unwrap());
         let path = &file.get_filename().unwrap()[1..];
         serial_println!("path : {}", path);
         if path != "/" {
