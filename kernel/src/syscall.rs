@@ -4,7 +4,7 @@ use alloc::{slice, str, vec::Vec};
 use shared_consts::{Arg, DirChild, Fd, READABLE, SHUTDOWN_SUCCESS, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat, StatMode, WRITABLE};
 use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{canonicalize_path, process_close_file, process_get_dir_children, process_open_file}, initrd::{file_stat, get_file_content}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, qemu::{self, QemuExitCode}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{canonicalize_path, file_stat, get_file_content, process_close_file, process_get_dir_children, process_open_file}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, qemu::{self, QemuExitCode}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 
 // TODO : deprecate the interrupt side for syscalls (how ? should I ?)

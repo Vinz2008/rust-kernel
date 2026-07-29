@@ -157,10 +157,10 @@ fn timer_interrupt_handler(regs : &mut Registers){
 
     end_of_interrupt(InterruptIndex::Timer);
 
-    if should_schedule {
+    /*if should_schedule {
         // timer in user code
         schedule(regs);
-    }
+    }*/
 }
 
 

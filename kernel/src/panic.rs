@@ -17,7 +17,11 @@ fn panic(info: &PanicInfo) -> ! {
     
     if let Some(mut serial_lock) = SERIAL1.try_lock() {
         let backtrace = Backtrace::new();
-        interrupts::without_interrupts(|| serial_lock.write_fmt(format_args!("backtrace {}", backtrace)).unwrap());
+        interrupts::without_interrupts(|| {
+            let _ = writeln!(serial_lock, "{}", info);
+            let _ = writeln!(serial_lock, "backtrace {}", backtrace);
+            //serial_lock.write_fmt(format_args!("backtrace {}", backtrace)).unwrap()
+        });
     }
     hlt_loop()
 }

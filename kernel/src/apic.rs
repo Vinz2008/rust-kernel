@@ -1,6 +1,6 @@
 use core::{cell::UnsafeCell, ptr::{read_volatile, write_volatile}, sync::atomic::{AtomicBool, Ordering}};
 
-use acpi::{AcpiError, AcpiTables, platform::{AcpiPlatform, InterruptModel}};
+use acpi::{AcpiError, AcpiTables, platform::{AcpiPlatform, InterruptModel, interrupt::Apic}};
 use spin::{Mutex, Once};
 use x86_64::{VirtAddr, instructions::interrupts::without_interrupts, registers::model_specific::{ApicBase, ApicBaseFlags}};
 
@@ -125,13 +125,15 @@ impl LocalApic {
         
         regs.task_priority.write(0);
 
-        regs.spurious_interrupt_vector.write(LAPIC_ENABLE | SPURIOUS_VECTOR as u32);
+        regs.timer_lvt.write(MASKED); // TODO : instead of routing the pic timer to the normal pit, use the real apic timer (need LAPIC time regs)
         regs.thermal_lvt.write(MASKED); // TODO ?
         regs.performance_lvt.write(MASKED); // TODO ?
         regs.lint0_lvt.write(MASKED); // TODO ?
         regs.lint1_lvt.write(MASKED); // TODO ?
+        regs.error_lvt.write(MASKED);
 
-        regs.timer_lvt.write(MASKED); // TODO : instead of routing the pic timer to the normal pit, use the real apic timer (need LAPIC time regs)
+        regs.spurious_interrupt_vector.write(LAPIC_ENABLE | SPURIOUS_VECTOR as u32);
+
         let _ = regs.id.read();
     }
 }
@@ -166,7 +168,7 @@ impl IoApic {
     fn route(&mut self, gsi : u32, vec : u8, dest_apic_id : u8){
         debug_assert!(gsi >= self.gsi_base);
 
-        let idx = (gsi - self.gsi_base);
+        let idx = gsi - self.gsi_base;
         let low_reg = (0x10 + idx * 2) as u8;
         let high_reg = low_reg + 1;
         self.write_register(low_reg, vec as u32 | MASKED);
@@ -185,9 +187,11 @@ struct IoApicMmio {
 
 static IO_APIC : Once<Mutex<IoApic>> = Once::new();
 
-enum GSI {
-    Timer = 0,
-    Keyboard = 1,
+fn irq_to_gsi(apic : &Apic, irq : u8) -> u32 {
+    apic.interrupt_source_overrides.iter()
+        .find(|iso| iso.isa_source == irq)
+        .map(|iso| iso.global_system_interrupt)
+        .unwrap_or(irq as u32)
 }
 
 fn _init_apic(acpi_tables : AcpiTables<MapHandler>) -> Result<(), AcpiError> {
@@ -241,8 +245,8 @@ fn _init_apic(acpi_tables : AcpiTables<MapHandler>) -> Result<(), AcpiError> {
     
     {
         let mut io_apic_lock = IO_APIC.get().unwrap().lock();
-        io_apic_lock.route(GSI::Timer as u32, InterruptIndex::Timer as u8, local_apid_id);
-        io_apic_lock.route(GSI::Keyboard as u32, InterruptIndex::Keyboard as u8, local_apid_id);
+        io_apic_lock.route(irq_to_gsi(&apic, InterruptIndex::Timer as u8), InterruptIndex::Timer as u8, local_apid_id);
+        io_apic_lock.route(irq_to_gsi(&apic, InterruptIndex::Keyboard as u8), InterruptIndex::Keyboard as u8, local_apid_id);
     }
 
     unsafe { pic::PICS.lock().disable() };

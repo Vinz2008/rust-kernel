@@ -22,6 +22,7 @@ pub enum StatMode {
         size : usize,
     },
     Directory,
+    Device,
 }
 
 #[repr(C)]
@@ -38,6 +39,7 @@ pub struct Fd(pub usize);
 
 pub const DIRENT_FILE : u8 = 1;
 pub const DIRENT_DIR : u8 = 2;
+pub const DIRENT_DEVICE : u8 = 2;
 
 // TOO : make this variable length like linux_dirent in linux
 #[repr(C)]

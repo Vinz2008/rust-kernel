@@ -2,7 +2,7 @@ use core::arch::naked_asm;
 
 use alloc::{collections::vec_deque::VecDeque, vec::Vec};
 use spin::Mutex;
-use x86_64::{instructions::interrupts::{self, without_interrupts}, registers::control::{Cr3, Cr3Flags}};
+use x86_64::{instructions::interrupts::{self, without_interrupts}, registers::{control::{Cr3, Cr3Flags}, rflags::RFlags}};
 
 use crate::{gdt::set_tss_privilege_stack, process::{Pid, Process}, serial_println, syscall::SYSCALL_KERNEL_RSP, utils::Registers};
 
@@ -77,14 +77,24 @@ pub fn start_first_process(pid : Pid) -> ! {
         (process.page_table_phys, process.kernel_stack_top, process.saved_regs)
     };
 
+    serial_println!("kernel stack top: {:?}", kernel_stack_top);
+    serial_println!("process CR3: {:?}", page_table_phys);
+
     unsafe {
         SYSCALL_KERNEL_RSP = kernel_stack_top.as_u64();
-    }
-
-    x86_64::instructions::interrupts::enable();
-    
-    unsafe {
+        
         Cr3::write(page_table_phys, Cr3Flags::empty());
+        
+        let test = (kernel_stack_top.as_u64() - 8) as *mut u64;
+        test.write_volatile(0x1234_5678_9abc_def0);
+
+        serial_println!("test");
+
+        //x86_64::instructions::interrupts::enable();
+
+        // Interrupts become enabled only after iretq. equivalent of interrupts enable
+        let user_rflags = regs.rflags | RFlags::INTERRUPT_FLAG.bits();
+
         core::arch::asm!(
             "mov rsp, {kernel_rsp}",
             "push {ss}",
@@ -96,7 +106,7 @@ pub fn start_first_process(pid : Pid) -> ! {
             kernel_rsp = in(reg) kernel_stack_top.as_u64(),
             ss = in(reg) regs.ss,
             rsp = in(reg) regs.rsp,
-            rflags = in(reg) regs.rflags,
+            rflags = in(reg) user_rflags,
             cs = in(reg) regs.cs,
             rip = in(reg) regs.rip,
             options(noreturn)
