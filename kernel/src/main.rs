@@ -64,6 +64,8 @@ mod ringbuf;
 entry_point!(kernel_main);
 
 
+// TODO : port doom (need to implement framebuffer)
+
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     #[cfg(test)]
