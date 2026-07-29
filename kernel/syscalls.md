@@ -19,17 +19,17 @@ Other types are standard C types
 ### exit - syscall 0
 ! exit(uint64_t code)
 
-Returns:
-    nothing (never returns)
+Returns:  
+    nothing (never returns)  
 
 Description:
 Exits the current process with the code given.
 
 ### print - syscall 1
 uint64_t print(const uint8_t* message_ptr, uint64_t message_len)
-Returns:
-    0 if success
-    0xFFFFFFFFFFFFFFFF if error
+Returns:  
+    0 if success  
+    0xFFFFFFFFFFFFFFFF if error  
 
 Description:
 Prints to the standard output of the terminal.
@@ -38,9 +38,9 @@ Prints to the standard output of the terminal.
 
 uint64_t exec(const uint8_t* path_ptr, uint64_t path_len, const uint8_t args_ptr, uint64_t args_len)
 
-Returns:
-    0xFFFFFFFFFFFFFFFF if error
-    pid of created process if success
+Returns:  
+    0xFFFFFFFFFFFFFFFF if error  
+    pid of created process if success  
 
 Description:
 Creates a process, launch it and return the pid.
