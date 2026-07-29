@@ -73,7 +73,21 @@ struct LocalApicRegisters {
     _reserved_364: [u8; 0x370 - 0x364],
 
     error_lvt: MmioRegister,
+
+    _reserved_374: [u8; 0x380 - 0x374],
+
+    initial_count: MmioRegister,
+
+    _reserved_384: [u8; 0x390 - 0x384],
+
+    current_count: MmioRegister,
+
+    _reserved_394: [u8; 0x3e0 - 0x394],
+
+    divide_configuration: MmioRegister,
 }
+
+// TODO : reprogram pic to 100 Hz after enabling apic timer
 
 impl LocalApicRegisters {
     fn id(&self) -> u8 {

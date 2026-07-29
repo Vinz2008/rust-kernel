@@ -148,7 +148,7 @@ pub unsafe extern "C" fn timer_interrupt_stub() -> ! {
 }
 
 static TICKS: AtomicU64 = AtomicU64::new(0);
-const TICKS_EACH_SCHEDULE: u64 = 10; // TODO : reprogram pic to 100 Hz
+const TICKS_EACH_SCHEDULE: u64 = 10; // TODO : change this after reprogramming frequency of timer interrupt (in apic)
 
 fn timer_interrupt_handler(regs : &mut Registers){
     let tick = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
