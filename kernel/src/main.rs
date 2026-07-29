@@ -54,6 +54,7 @@ mod scheduler;
 mod userspace;
 
 mod fs;
+mod device;
 mod initrd;
 
 mod cli;

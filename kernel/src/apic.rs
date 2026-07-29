@@ -185,6 +185,11 @@ struct IoApicMmio {
     register_window: MmioRegister,
 }
 
+enum Gsi {
+    Timer = 0,
+    Keyboard = 1,
+}
+
 static IO_APIC : Once<Mutex<IoApic>> = Once::new();
 
 fn irq_to_gsi(apic : &Apic, irq : u8) -> u32 {
@@ -237,6 +242,16 @@ fn _init_apic(acpi_tables : AcpiTables<MapHandler>) -> Result<(), AcpiError> {
         serial_println!("apic io : id = {}, address = 0x{:x}, global_system_interrupt_base = {}", io_apic.id, io_apic.address, io_apic.global_system_interrupt_base);
     }
 
+    for iso in &apic.interrupt_source_overrides {
+        serial_println!(
+            "ISO: ISA IRQ {} -> GSI {}, polarity={:?}, trigger={:?}",
+            iso.isa_source,
+            iso.global_system_interrupt,
+            iso.polarity,
+            iso.trigger_mode,
+        );
+    }
+
     let io_apic_info = *apic.io_apics.first().ok_or(AcpiError::HostUnimplemented)?;
 
     let io_apic_virt_addr = *PHYSICAL_MEMORY_OFFSET.get().unwrap() + io_apic_info.address as u64;
@@ -245,8 +260,12 @@ fn _init_apic(acpi_tables : AcpiTables<MapHandler>) -> Result<(), AcpiError> {
     
     {
         let mut io_apic_lock = IO_APIC.get().unwrap().lock();
-        io_apic_lock.route(irq_to_gsi(&apic, InterruptIndex::Timer as u8), InterruptIndex::Timer as u8, local_apid_id);
-        io_apic_lock.route(irq_to_gsi(&apic, InterruptIndex::Keyboard as u8), InterruptIndex::Keyboard as u8, local_apid_id);
+        let gsi_timer = irq_to_gsi(&apic, Gsi::Timer as u8);
+        serial_println!("gsi_timer : {}", gsi_timer);
+        io_apic_lock.route(gsi_timer, InterruptIndex::Timer as u8, local_apid_id);
+        let gsi_keyboard = irq_to_gsi(&apic, Gsi::Keyboard as u8);
+        serial_println!("gsi_keyboard : {}", gsi_keyboard);
+        io_apic_lock.route(gsi_keyboard, InterruptIndex::Keyboard as u8, local_apid_id);
     }
 
     unsafe { pic::PICS.lock().disable() };

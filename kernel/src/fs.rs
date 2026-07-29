@@ -4,7 +4,7 @@ use alloc::{boxed::Box, string::{String, ToString}, vec::Vec};
 use shared_consts::{DIRENT_DEVICE, DIRENT_DIR, DIRENT_FILE, DirChild, Fd, PATH_NAME_MAX, Stat, StatMode};
 use spin::mutex::Mutex;
 
-use crate::{initrd::{INITRD_BYTES, TarInitrd}, process::OpenedFile, scheduler::with_scheduler_no_int, serial_println};
+use crate::{device::DeviceOps, initrd::{INITRD_BYTES, TarInitrd}, process::OpenedFile, scheduler::with_scheduler_no_int, serial_println};
 use lazy_static::lazy_static;
 
 pub fn process_open_file(path : &str, is_readable : bool, is_writable : bool) -> Option<Fd> {
@@ -104,7 +104,7 @@ pub enum FileContent<'a> {
         content : &'a [u8], // TODO : replace with vec ? Cow ?
     },
     Device {
-
+        device_ops : &'static dyn DeviceOps,
     }
 }
 
@@ -173,8 +173,8 @@ impl<'a> FileNode<'a> {
         }
     }
 
-    fn new_device(name : String, ) -> FileNode<'a> {
-        let content = FileContent::Device {  };
+    fn new_device(name : String, device_ops : &'static dyn DeviceOps) -> FileNode<'a> {
+        let content = FileContent::Device { device_ops };
         FileNode { 
             name, 
             content 
@@ -220,7 +220,7 @@ impl<'a> FileNode<'a> {
                 let new_file = match content {
                     FileContent::Directory { children } => FileNode::new_dir_with_children(new_file_name, children),
                     FileContent::File { content } => FileNode::new_file_with_content(new_file_name, content),
-                    FileContent::Device {  } => FileNode::new_device(new_file_name),
+                    FileContent::Device { device_ops } => FileNode::new_device(new_file_name, device_ops),
                 };
                 if children.iter().find(|f| f.name == current_part).is_some() {
                     return Err(FileError::FileAlreadyExists { path: Box::default() });
@@ -434,6 +434,8 @@ fn fs_create_root_node(tar_initrd : TarInitrd<'static>) -> FileNode<'static> {
             
         }
     }
+
+    root_node.create_dir("/dev", false).unwrap();
     
     root_node
 }

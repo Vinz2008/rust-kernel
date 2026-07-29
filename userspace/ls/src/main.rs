@@ -1,10 +1,12 @@
 #![no_std]
 #![no_main]
 
-use rt::{self as _, Args, println, shared_consts::{DirChild, READABLE}, syscall::{syscall_get_cwd, syscall_get_dir_children, syscall_open}};
+use rt::{self as _, Args, print, println, shared_consts::{DIRENT_DIR, DirChild, READABLE}, syscall::{syscall_get_cwd, syscall_get_dir_children, syscall_open}};
 
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main(args : Args<'_>) -> i32 {
+    // TODO : add support for "ls dir" with the args
+
     let current_cwd = syscall_get_cwd().unwrap();
     let current_dir_fd: rt::shared_consts::Fd = syscall_open(&current_cwd, READABLE).unwrap();
     let mut children = [DirChild {
@@ -20,7 +22,11 @@ pub extern "Rust" fn main(args : Args<'_>) -> i32 {
 
         for child in &children[..n] {
             let name = str::from_utf8(&child.name[..child.name_len as usize]).unwrap_or("<invalid UTF-8>");
-            println!("{}", name);
+            print!("{}", name);
+            if child.kind == DIRENT_DIR {
+                print!("/");
+            }
+            println!();
         }
     }
     0
