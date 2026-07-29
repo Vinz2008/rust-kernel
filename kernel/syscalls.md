@@ -40,7 +40,10 @@ uint64_t exec(const uint8_t* path_ptr, uint64_t path_len, const uint8_t args_ptr
 
 Returns:
     0xFFFFFFFFFFFFFFFF if error
-    pid of created processif success
+    pid of created process if success
+
+Description:
+Creates a process, launch it and return the pid.
 
 ### get_char - syscall 3
 
