@@ -81,6 +81,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     // TODO : remove pic initialization in the future (just disable it using the .lock().disable(), is small enough that I can just implement it without deps)
     unsafe { pic::PICS.lock().initialize() };
 
+    // TODO : should I really use the physical memory offset in the bootinfo ? why not just use the constant one in the kernel Cargo.toml, it would prevent to put PHYSICAL_MEMORY_OFFSET in a Once (remove atomic loads)
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
 
     let mapper = unsafe { paging::init(phys_mem_offset) };
