@@ -18,6 +18,7 @@ opt-level = 2
 strip = "symbols"
 overflow-checks = true
 lto = "fat"
+panic = "abort"
 
 # TODO : change this ?
 [profile.release.package.bootloader]
