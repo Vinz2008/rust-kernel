@@ -3,5 +3,11 @@ name = "init"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "init"
+path = "src/main.rs"
+test = false
+bench = false
+
 [dependencies]
 rt = { path = "../rt" }
