@@ -36,9 +36,7 @@ checksum = "84d7ced0ae9557296835c32bf1b1e02b44c746701f898460fb000d7eaa84f00a"
 
 [[package]]
 name = "bootloader"
-version = "0.9.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13f6a8a495d2f93fe3d6eb3a224f9aa749a63cfd746ed03eb5ddcbd00ade7d8f"
+version = "0.9.35"
 
 [[package]]
 name = "byteorder"

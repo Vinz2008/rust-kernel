@@ -9,9 +9,16 @@ members = [
     "shared_consts", "userspace/shutdown",
 ]
 default-members = ["kernel"]
+exclude = [
+    "bootloader",
+]
 
 [profile.release]
 opt-level = 2
 strip = "symbols"
 overflow-checks = true
 lto = "fat"
+
+# TODO : change this ?
+[profile.release.package.bootloader]
+debug = true

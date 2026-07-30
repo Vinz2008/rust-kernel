@@ -38,14 +38,6 @@ recursive_page_table = []
 map_physical_memory = []
 sse = ["bit_field"]
 
-[profile.dev]
-panic = "abort"
-
-[profile.release]
-panic = "abort"
-lto = false
-debug = true
-
 [package.metadata.bootloader]
 target = "x86_64-bootloader.json"
 build-std = "core"
@@ -53,10 +45,3 @@ build-std = "core"
 [package.metadata.docs.rs]
 features = [ "recursive_page_table", "map_physical_memory" ]
 default-target = "x86_64-unknown-linux-gnu"
-
-[package.metadata.release]
-pre-release-replacements = [
-    { file="Changelog.md", search="# Unreleased", replace="# Unreleased\n\n# {{version}} – {{date}}", exactly=1 },
-]
-pre-release-commit-message = "Release version {{version}}"
-publish = false

@@ -5,7 +5,6 @@
     "linker": "rust-lld",
     "pre-link-args": {
         "ld.lld": [
-            "--script=linker.ld",
             "--gc-sections"
         ]
     },

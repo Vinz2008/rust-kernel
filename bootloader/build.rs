@@ -293,8 +293,26 @@ fn main() {
         kernel_file_name
     );
 
+    let manifest_dir = PathBuf::from(
+        env::var("CARGO_MANIFEST_DIR")
+            .expect("CARGO_MANIFEST_DIR not set"),
+        );
+
+    let linker_script = manifest_dir.join("linker.ld");
+
+    println!(
+        "cargo:rustc-link-arg=--script={}",
+        linker_script.display()
+    );
+
+    println!(
+        "cargo:rerun-if-changed={}",
+        linker_script.display()
+    );
+
     println!("cargo:rerun-if-env-changed=KERNEL");
     println!("cargo:rerun-if-env-changed=KERNEL_MANIFEST");
     println!("cargo:rerun-if-changed={}", kernel.display());
     println!("cargo:rerun-if-changed=build.rs");
+
 }
