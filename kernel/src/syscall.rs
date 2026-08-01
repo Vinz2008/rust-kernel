@@ -4,7 +4,7 @@ use alloc::{slice, str, vec::Vec};
 use shared_consts::{Arg, DirChild, Fd, READABLE, SHUTDOWN_SUCCESS, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat, StatMode, WRITABLE};
 use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{canonicalize_path, file_stat, get_file_content, process_close_file, process_get_dir_children, process_open_file}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, qemu::{self, QemuExitCode}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_get_dir_children, process_open_file}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, qemu::{self, QemuExitCode}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 
 // TODO : deprecate the interrupt side for syscalls (how ? should I ?)
@@ -276,7 +276,8 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
     
 
     // TODO : merge this with the init executing, by having an run_exe function in userspace.rs
-    let file_content = get_file_content(&canonicalized_path).ok()?;
+    let inode = get_inode(&canonicalized_path).ok()?;
+    let file_content = inode.read_entire_file_in_mem().ok()?;
 
     let new_proc_pid = interrupts::without_interrupts(|| {
         let current_cwd_path = {
@@ -289,7 +290,7 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
         let mut scheduler_lock = SCHEDULER.lock();
         let process = new_proc_pid.get_process(&scheduler_lock.processes);
 
-        let elf = load_elf(file_content, process).ok()?; // TODO : in case like this in syscalls, instead of destroying the error and returning a non specific error to syscall, print the syscall error (in serial ? stdout ?) and then return the None
+        let elf = load_elf(&file_content, process).ok()?; // TODO : in case like this in syscalls, instead of destroying the error and returning a non specific error to syscall, print the syscall error (in serial ? stdout ?) and then return the None
         let entrypoint = elf.ehdr.e_entry as usize;
         new_proc_pid.get_process_mut(&mut scheduler_lock.processes).init_process(entrypoint, &args_strings);
         scheduler_lock.make_runnable(new_proc_pid);

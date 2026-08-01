@@ -1,6 +1,6 @@
 use alloc::{borrow::Cow, format, slice, string::ToString, vec::Vec};
 
-use crate::{elf::load_elf, fs::ROOT_NODE, process::Process, scheduler::{SCHEDULER, start_first_process}};
+use crate::{elf::load_elf, fs::{ROOT_NODE, get_inode}, process::Process, scheduler::{SCHEDULER, start_first_process}};
 
 #[repr(C)]
 pub struct TarHeader {
@@ -145,10 +145,9 @@ pub fn load_initrd_init() -> ! {
         for (idx, &file) in tar_initrd.headers.iter().enumerate() {
             serial_println!("file {} {} {}", idx, file.get_filename().unwrap(), file.size().unwrap());
         }*/
-
-        let root_node = ROOT_NODE.lock();
         
-        let init_content = root_node.get_file_content(init_path).unwrap();
+        let init_node = get_inode(init_path).unwrap();
+        let init_content = init_node.read_entire_file_in_mem().unwrap();
         
 
         let process_pid = Process::empty_process("/".to_string());
@@ -156,7 +155,7 @@ pub fn load_initrd_init() -> ! {
 
         let elf = {
             let scheduler_lock = SCHEDULER.lock();
-            load_elf(init_content, process_pid.get_process(&scheduler_lock.processes))
+            load_elf(&init_content, process_pid.get_process(&scheduler_lock.processes))
         }.expect("failed loading init");
         
         (elf.ehdr.e_entry, process_pid)

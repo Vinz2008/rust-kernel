@@ -1,6 +1,6 @@
-use core::cmp;
+use core::{cmp, sync::atomic::{AtomicU64, Ordering}};
 
-use alloc::{boxed::Box, string::{String, ToString}, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, string::{String, ToString}, sync::Arc, vec::Vec};
 use shared_consts::{DIRENT_DEVICE, DIRENT_DIR, DIRENT_FILE, DirChild, Fd, PATH_NAME_MAX, Stat, StatMode};
 use spin::mutex::Mutex;
 
@@ -13,11 +13,11 @@ pub fn process_open_file(path : &str, is_readable : bool, is_writable : bool) ->
             let current_cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes).cwd_path;
             canonicalize_path(path, current_cwd)?
         };
-        file_stat(&canonicalized_path).ok()?;
         let current_proc = scheduler.current_process.unwrap();
         let current_proc = current_proc.get_process_mut(&mut scheduler.processes);
         let fd = current_proc.fd_list.len();
-        current_proc.fd_list.push(Some(OpenedFile::new(canonicalized_path, is_readable, is_writable)));
+        let opened_file = OpenedFile::new(&canonicalized_path, is_readable, is_writable).ok()?;
+        current_proc.fd_list.push(Some(opened_file));
         Some(Fd(fd))
     })
 }
@@ -33,16 +33,16 @@ pub fn process_close_file(fd : Fd) -> Option<()> {
 }
 
 pub fn process_get_dir_children(fd : Fd, out : &mut [DirChild]) -> Result<usize, FileError> {
-    let (path, offset) = with_scheduler_no_int(|scheduler|{
+    let (inode, offset) = with_scheduler_no_int(|scheduler|{
         let current_proc = scheduler.current_process.unwrap();
         let current_proc = current_proc.get_process(&scheduler.processes);
         let opened_dir = current_proc.fd_list.get(fd.0).ok_or(FileError::FdNotFound)?.as_ref().unwrap();
-        let path = opened_dir.path.clone();
+        let path = opened_dir.inode.clone();
         let offset = opened_dir.offset;
         Ok((path, offset))
     })?;
 
-    let children_nb = file_read_dir_children(&path, offset, out)?;
+    let children_nb = inode.read_dir_children(offset, out)?;
 
     with_scheduler_no_int(|scheduler|{
         let current_proc = scheduler.current_process.unwrap();
@@ -77,7 +77,7 @@ pub fn canonicalize_path(path : &str, cwd : &str) -> Option<String> {
         match component {
             "" | "." => {}
             ".." => {
-                components.pop()?;
+                components.pop();
             }
             name => components.push(name),
         }
@@ -96,7 +96,49 @@ pub fn canonicalize_path(path : &str, cwd : &str) -> Option<String> {
 // TODO : make the children be not owned to be able to duplicate them in the tree ? (do I really need that ?), also would help with ownership by letting easily copy a filenode
 // TODO : use trait instead, to abstract from where is the data (to replace the part with the content)
 
-pub enum FileContent<'a> {
+static NEXT_INODE_ID : AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy)]
+pub struct InodeIdx(u64);
+
+fn next_inode_idx() -> InodeIdx {
+    InodeIdx(NEXT_INODE_ID.fetch_add(1, Ordering::Relaxed))
+}
+
+pub struct Inode {
+    idx : InodeIdx,
+    kind : InodeKind,
+}
+
+pub enum FileData {
+    Initrd(&'static [u8]),
+    Memory(Mutex<Vec<u8>>), // TODO : test RwLock ?
+}
+
+impl FileData {
+    fn len(&self) -> usize {
+        match self {
+            FileData::Initrd(buf) => buf.len(),
+            FileData::Memory(buf) => buf.lock().len(),
+        }
+    }
+}
+
+pub enum InodeKind {
+    Directory {
+        entries : Mutex<BTreeMap<Box<str>, Arc<Inode>>>, // TODO : test Rwlock ? (more important than for others case, because should be able to traverse fs in concurrency, while reading concurrently is less important for now)
+    },
+    File {
+        data: FileData
+    },
+    Device {
+        device_ops : &'static dyn DeviceOps,
+    }
+}
+
+
+
+/*pub enum FileContent<'a> {
     Directory {
         children : Vec<FileNode<'a>>,
     },
@@ -111,7 +153,7 @@ pub enum FileContent<'a> {
 pub struct FileNode<'a> {
     name : String, // TODO : replace these with Box<str> to lower memory usage ?
     content : FileContent<'a>,
-}
+}*/
 
 #[derive(Debug)]
 pub enum FileError {
@@ -152,47 +194,134 @@ fn fix_error_with_path<T>(res : Result<T, FileError>, path : Box<str>) -> Result
     }
 }
 
-impl<'a> FileNode<'a> {
-    fn new_dir_with_children(name : String, children : Vec<FileNode<'a>>) -> FileNode<'a> {
-        let content = FileContent::Directory { children };
-        FileNode { 
-            name, 
-            content, 
-        }
+impl Inode {
+    fn new_dir() -> Arc<Inode> {
+        Arc::new(Inode { 
+            idx: next_inode_idx(), 
+            kind: InodeKind::Directory { entries: Mutex::new(BTreeMap::new()) },
+        })
     }
 
-    pub fn new_dir(name : String) -> FileNode<'a> {
-        Self::new_dir_with_children(name, Vec::new())
+    fn new_initrd_file(data : &'static [u8]) -> Arc<Inode> {
+        Arc::new(Inode { 
+            idx: next_inode_idx(), 
+            kind: InodeKind::File { data: FileData::Initrd(data) }, 
+        })
     }
 
-    fn new_file_with_content(name : String, content : &'a [u8]) -> FileNode<'a> {
-        let content = FileContent::File { content };
-        FileNode { 
-            name,
-            content 
-        }
+    fn new_mem_file() -> Arc<Inode> {
+        Arc::new(Inode { 
+            idx: next_inode_idx(), 
+            kind: InodeKind::File { data: FileData::Memory(Mutex::new(Vec::new())) }, 
+        })
     }
 
-    fn new_device(name : String, device_ops : &'static dyn DeviceOps) -> FileNode<'a> {
-        let content = FileContent::Device { device_ops };
-        FileNode { 
-            name, 
-            content 
-        }
-    }
-
-    fn new_file(name : String) -> FileNode<'a> {
-        Self::new_file_with_content(name, EMPTY_CONTENT)
+    fn new_device(device_ops : &'static dyn DeviceOps) -> Arc<Inode> {
+        Arc::new(Inode {
+            idx: next_inode_idx(),
+            kind: InodeKind::Device { device_ops },
+        })
     }
 
     fn is_dir(&self) -> bool {
-        matches!(self.content, FileContent::Directory { .. })
+        matches!(self.kind, InodeKind::Directory { .. })
     }
 
-    fn is_file(&self) -> bool {
-        matches!(self.content, FileContent::File { .. })
+    fn read_dir_children(&self, start_offset : usize, out : &mut [DirChild]) -> Result<usize, FileError> {
+        let entries_lock = match &self.kind {
+            InodeKind::Directory { entries } => entries.lock(),
+            InodeKind::File { .. } | InodeKind::Device { .. } => {
+                return Err(FileError::DirExpected { file_should_be_dir: None, path: Box::default() }); // TODO : put the inode instead ?
+            }
+        };
+
+        let mut written = 0;
+
+
+        for (name, inode) in entries_lock.iter().skip(start_offset).take(out.len()){
+            let kind = match inode.kind {
+                InodeKind::Directory { .. } => DIRENT_DIR,
+                InodeKind::File { .. } => DIRENT_FILE,
+                InodeKind::Device { .. } => DIRENT_DEVICE,
+            };
+
+            let name_len = cmp::min(name.len(), PATH_NAME_MAX);
+
+            let mut entry = DirChild {
+                kind,
+                name_len: name_len as u8,
+                name: [0; PATH_NAME_MAX],
+            };
+
+            entry.name[..name_len].copy_from_slice(&name.as_bytes()[..name_len]);
+            out[written] = entry;
+            written += 1;
+        }
+
+        Ok(written)
     }
 
+    pub fn initrd_content(&self) -> Option<&'static [u8]> {
+        match &self.kind {
+            InodeKind::File { data: FileData::Initrd(content) } => Some(*content),
+            _ => None,
+        }
+    }
+
+    fn stat(&self) -> Stat {
+        let mode = match &self.kind {
+            InodeKind::File { data } => StatMode::File {
+                size: data.len(),
+            },
+            InodeKind::Directory { .. } => StatMode::Directory,
+            InodeKind::Device { .. } => StatMode::Device,
+        };
+        Stat {
+            mode
+        }
+    }
+
+    fn read_at(&self, offset : usize, out : &mut [u8]) -> Result<usize, FileError> {
+        match &self.kind {
+            InodeKind::File { data } => match data {
+                FileData::Initrd(data) => {
+                    if offset >= data.len() {
+                        return Ok(0);
+                    }
+                    let count = cmp::min(out.len(), data.len()-offset);
+                    out[..count].copy_from_slice(&data[offset..offset+count]);
+                    Ok(count)
+                },
+                FileData::Memory(data) => {
+                    let data_lock = data.lock();
+                    if offset >= data_lock.len(){
+                        return Ok(0);
+                    }
+                    let count = cmp::min(out.len(), data_lock.len()-offset);
+                    out[..count].copy_from_slice(&data_lock[offset..offset+count]);
+                    Ok(count)
+                },
+            }, 
+            InodeKind::Device { .. } => todo!(), // TODO : read a device
+            InodeKind::Directory { .. } => return Err(FileError::FileExpected { path: Box::default() }),
+        }
+    }
+
+    pub fn read_entire_file_in_mem(&self) -> Result<Cow<'_, [u8]>, FileError> {
+        if let Some(content) = self.initrd_content() {
+            return Ok(Cow::Borrowed(content));
+        }
+        let size = match self.stat().mode {
+            StatMode::File { size } => size,
+            _ => return Err(FileError::FileExpected { path: Box::default() }), // TODO : put Inode instead ?
+        };
+        let mut content = Vec::with_capacity(size);
+        let read_amount = self.read_at(0, &mut content)?; // TODO : check wrote ? or retry if not everything read ?
+        Ok(Cow::Owned(content))
+    }
+}
+
+/*impl<'a> FileNode<'a> {
     fn _create_node<'b>(&mut self, current_part : &'b str, mut rest_path : impl Iterator<Item = &'b str>, content : FileContent<'a>, create_parents : bool) -> Result<(), FileError>{
         let children = match &mut self.content {
             FileContent::Directory { children } => children,
@@ -331,89 +460,118 @@ impl<'a> FileNode<'a> {
         let res = self._get_file_node_mut(first_part, split_path);
         fix_error_with_path(res, Box::from(path))
     }
+}*/
 
-    pub fn read_dir_children(&self, path : &str, start_offset : usize, out : &mut [DirChild]) -> Result<usize, FileError> {
-        let dir_node = self.get_file_node(path)?;
+fn path_components(path : &str) -> impl Iterator<Item = &str> {
+    path.split('/').filter(|part| !part.is_empty())
+}
 
-        let children = match &dir_node.content {
-            FileContent::Directory { children } => children,
-            FileContent::File { .. } | FileContent::Device { .. } => {
-                return Err(FileError::DirExpected { file_should_be_dir: None, path: path.to_string().into() })
+fn find_inode_from(start : Arc<Inode>, path : &str) -> Result<Arc<Inode>, FileError> {
+    let mut current = start;
+
+    for component in path_components(path){
+        current = match &current.kind {
+            InodeKind::Directory { entries } => {
+                entries.lock().get(component).cloned().ok_or_else(||{
+                    FileError::FileNotFound { path: Box::from(path) }
+                })?
+            },
+            InodeKind::Device { .. } | InodeKind::File { .. } => return Err(FileError::DirExpected { file_should_be_dir: Some(Box::from(component)), path: Box::from(path) }),
+        };
+    }
+
+    Ok(current)
+}
+
+pub fn get_inode(path : &str) -> Result<Arc<Inode>, FileError> {
+    find_inode_from(ROOT_NODE.clone(), path)
+}
+
+fn add_child_to_inode_dir(parent : &Arc<Inode>, name : &str, child : Arc<Inode>) -> Result<(), FileError> {
+    if name.is_empty() || name.contains('/') {
+        return Err(FileError::InvalidPath { path: Box::from(name) });
+    }
+
+    let entries = match &parent.kind {
+        InodeKind::Directory { entries } => entries,
+        InodeKind::File { .. } | InodeKind::Device { .. } => return Err(FileError::DirExpected { file_should_be_dir: Some(Box::from(name)), path: Box::from("") })
+    };
+
+    let mut entries_lock = entries.lock();
+
+    if entries_lock.contains_key(name){
+        return Err(FileError::FileAlreadyExists { path: Box::from(name) });
+    }
+
+    entries_lock.insert(Box::from(name), child);
+    Ok(())
+}
+
+fn add_inode_to_vfs_tree(root : Arc<Inode>, path : &str, node : Arc<Inode>, create_parents : bool) -> Result<(), FileError> {
+    let components = path_components(path).collect::<Vec<_>>();
+    let (name, parents) = match components.split_last(){
+        Some((name, parents)) => (*name, parents),
+        None => return Err(FileError::InvalidPath { path: Box::from(path) }),
+    };
+
+    let mut current = root;
+
+    for &component in parents {
+        current = match &current.kind {
+            InodeKind::Directory { entries } => {
+                let mut entries_lock = entries.lock();
+                let existing = entries_lock.get(component).cloned();
+                match existing {
+                    Some(inode) => {
+                        if !inode.is_dir() {
+                            return Err(FileError::DirExpected { file_should_be_dir: Some(Box::from(component)), path: Box::from(path) });
+                        }
+                        inode
+                    },
+                    None => {
+                        let component_str = Box::from(component); 
+                        if create_parents {
+                            let dir = Inode::new_dir();
+                            entries_lock.insert(component_str, dir.clone());
+                            dir
+                        } else {
+                            return Err(FileError::DirPathNotFound { dir_not_found: component_str, path: Box::from(path) });
+                        }
+                    }
+                }
+            }
+            InodeKind::File { .. } | InodeKind::Device { .. } => {
+                return Err(FileError::DirExpected {
+                    file_should_be_dir: None,
+                    path: Box::from(path),
+                });
             }
         };
-
-        let mut written = 0;
-        
-        for child in children.iter().skip(start_offset).take(out.len()){
-            let kind = match child.content {
-                FileContent::Directory { .. } => DIRENT_DIR,
-                FileContent::File { .. } => DIRENT_FILE,
-                FileContent::Device { .. } => DIRENT_DEVICE,
-            };
-
-            let name_len = cmp::min(child.name.len(), PATH_NAME_MAX);
-
-            let mut entry = DirChild {
-                kind,
-                name_len: name_len as u8,
-                name: [0; PATH_NAME_MAX],
-            };
-
-            entry.name[..name_len].copy_from_slice(&child.name.as_bytes()[..name_len]);
-            out[written] = entry;
-            written += 1;
-        }
-
-        Ok(written)
     }
 
-    pub fn get_file_content(&self, path : &str) -> Result<&'a [u8], FileError> {
-        match &self.get_file_node(path)?.content {
-            FileContent::File { content } => Ok(content),
-            FileContent::Directory { .. } | FileContent::Device { .. } => Err(FileError::FileExpected { path: Box::from(path) }),
-        }
-    }
+    let res = add_child_to_inode_dir(&current, name, node);
+    fix_error_with_path(res, Box::from(path))
 }
-
-
-pub fn get_file_content<'a>(path : &str) -> Result<&'a [u8], FileError> {
-    let root_node = ROOT_NODE.lock();
-    root_node.get_file_content(path)
-}
-
 
 
 pub fn file_stat(path : &str) -> Result<Stat, FileError> {
     serial_println!("file stat on {}", path);
-    let root_node = ROOT_NODE.lock();
-    let file_node = root_node.get_file_node(path)?;
-    let mode = match file_node.content {
-        FileContent::File { content } => StatMode::File {
-            size: content.len(),
-        },
-        FileContent::Directory { .. } => StatMode::Directory,
-        FileContent::Device { .. } => StatMode::Device,
-    };
-    Ok(Stat {
-        mode
-    })
-}
+    let file_node = get_inode(path)?;
+    let stat = file_node.stat();
 
-pub fn file_read_dir_children(path : &str, start_offset : usize, out : &mut [DirChild]) -> Result<usize, FileError> {
-    let root = ROOT_NODE.lock();
-    root.read_dir_children(path, start_offset, out)
+    Ok(stat)
 }
 
 lazy_static! {
-    pub static ref ROOT_NODE : Mutex<FileNode<'static>> = {
+    pub static ref ROOT_NODE : Arc<Inode> = {
         let tar_initrd = TarInitrd::new(INITRD_BYTES).expect("invalid tar");
         let root_node = fs_create_root_node(tar_initrd);
-        Mutex::new(root_node)
+        root_node
     };
 }
 
-fn fs_create_root_node(tar_initrd : TarInitrd<'static>) -> FileNode<'static> {
-    let mut root_node = FileNode::new_dir("<ROOT NODE>".to_string());
+fn fs_create_root_node(tar_initrd : TarInitrd<'static>) -> Arc<Inode> {
+    let root_node = Inode::new_dir();
     for (idx, &file) in tar_initrd.headers.iter().enumerate() {
         serial_println!("file {} {} {}", idx, file.get_filename().unwrap().as_ref(), file.size().unwrap());
     }
@@ -425,17 +583,17 @@ fn fs_create_root_node(tar_initrd : TarInitrd<'static>) -> FileNode<'static> {
         let path = &file.get_filename().unwrap()[1..];
         serial_println!("path : {}", path);
         if path != "/" {
-            let node_content = match file.get_typeflag() {
-                b'0' | 0 => FileContent::File { content: file.content().unwrap() },
-                b'5' => FileContent::Directory { children: Vec::new() },
+            let inode = match file.get_typeflag(){
+                b'0' | 0 => Inode::new_initrd_file(file.content().unwrap()),
+                b'5' => Inode::new_dir(),
                 typeflag => panic!("unsupported tag in initrd : {:?}", typeflag),
             };
-            root_node.create_node(path, node_content, true).unwrap();  // TODO : better error handling ?
+            add_inode_to_vfs_tree(root_node.clone(), path, inode, true).unwrap(); // TODO : better error handling ?
             
         }
     }
 
-    root_node.create_dir("/dev", false).unwrap();
+    add_inode_to_vfs_tree(root_node.clone(), "/dev", Inode::new_dir(), false).unwrap();
     
     root_node
 }
