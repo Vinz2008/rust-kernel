@@ -1,6 +1,6 @@
 use core::{cmp, sync::atomic::{AtomicU64, Ordering}};
 
-use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, string::{String, ToString}, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use shared_consts::{DIRENT_DEVICE, DIRENT_DIR, DIRENT_FILE, DirChild, Fd, PATH_NAME_MAX, Stat, StatMode};
 use spin::mutex::Mutex;
 
@@ -180,7 +180,7 @@ pub enum FileError {
     FdNotFound,
 }
 
-const EMPTY_CONTENT : &[u8] = &[];
+//const EMPTY_CONTENT : &[u8] = &[];
 
 // TODO : have a fd to not have to resolve path for each file operation
 
@@ -302,8 +302,8 @@ impl Inode {
                     Ok(count)
                 },
             }, 
-            InodeKind::Device { .. } => todo!(), // TODO : read a device
-            InodeKind::Directory { .. } => return Err(FileError::FileExpected { path: Box::default() }),
+            InodeKind::Device { device_ops } => device_ops.read(offset, out),
+            InodeKind::Directory { .. } => Err(FileError::FileExpected { path: Box::default() }),
         }
     }
 

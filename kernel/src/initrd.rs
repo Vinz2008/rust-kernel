@@ -1,6 +1,6 @@
 use alloc::{borrow::Cow, format, slice, string::ToString, vec::Vec};
 
-use crate::{elf::load_elf, fs::{ROOT_NODE, get_inode}, process::Process, scheduler::{SCHEDULER, start_first_process}};
+use crate::{elf::load_elf, fs::get_inode, process::Process, scheduler::{SCHEDULER, start_first_process}};
 
 #[repr(C)]
 pub struct TarHeader {
