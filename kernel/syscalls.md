@@ -45,7 +45,13 @@ Creates a process, launch it and return the pid.
 
 ## get_char - syscall 3
 
-TODO
+uint64_t get_char()
+
+Returns:  
+    key pressed
+
+Description:
+Returns the key pressed as a uint32_t unicode char casted to uint64_t
 
 ## wait_pid - syscall 4
 

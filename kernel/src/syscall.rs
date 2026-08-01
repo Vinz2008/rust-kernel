@@ -162,7 +162,7 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
         SYSCALL_EXIT => syscall_exit(regs),
         SYSCALL_PRINT => syscall_print(regs).map(|_| 0), // TODO : change these syscalls ?
         SYSCALL_EXEC => syscall_exec(regs),
-        SYSCALL_GET_CHAR => syscall_get_char(regs),
+        SYSCALL_GET_CHAR => Some(syscall_get_char(regs)),
         SYSCALL_WAIT_PID => syscall_wait_pid(regs).map(|_| 0),
         SYSCALL_STAT => syscall_stat(regs).map(|_| 0),
         SYSCALL_OPEN => syscall_open(regs).map(|fd| fd.0 as u64),
@@ -301,7 +301,8 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
     //switch_to_userspace(entrypoint, USER_STACK_TOP, kernel_stack_top, user_page_table)
 }
 
-fn syscall_get_char(regs : &mut SyscallRegs) -> Option<u64> {
+// TODO : remove this and just use read syscall on stdin (after adding read and stdin)
+fn syscall_get_char(regs : &mut SyscallRegs) -> u64 {
     loop {
         let control_flow = interrupts::without_interrupts(|| {
             serial_println!("get_char: trying pop");
@@ -320,7 +321,7 @@ fn syscall_get_char(regs : &mut SyscallRegs) -> Option<u64> {
 
         if let ControlFlow::Break(c) = control_flow {
             serial_println!("get_char: got {:?}", c);
-            return Some(c as u64);
+            return c as u64;
         }
         
         schedule(regs);
