@@ -32,6 +32,7 @@ pub struct Stat {
 
 pub const READABLE : u64 = 0x1;
 pub const WRITABLE : u64 = 0x2;
+pub const CREATE_FILE : u64 = 0x4;
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]

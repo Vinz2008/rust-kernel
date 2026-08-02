@@ -4,3 +4,4 @@ initrd/init
 initrd/cli
 initrd/ls
 initrd/shutdown
+initrd/touch

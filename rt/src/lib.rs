@@ -17,8 +17,6 @@ mod allocator;
 pub mod syscall;
 pub mod print;
 
-// TODO : allocator
-
 unsafe extern "Rust" {
     fn main(args : Args<'_>) -> i32;
 }

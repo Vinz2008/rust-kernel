@@ -104,6 +104,14 @@ fn add_exe_to_initrd(target_dir : &Path, profile : &str, exe : &str){
     fs::copy(&bin, to_path).expect("failed to copy executable");
 }
 
+const USERSPACE_EXES : &[&str] = &[
+    "init",
+    "cli",
+    "ls",
+    "shutdown",
+    "touch",
+];
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rustc-link-arg=-Tkernel/linker.ld");
@@ -113,10 +121,9 @@ fn main() {
 
     let target_dir = find_target_dir();
 
-    add_exe_to_initrd(&target_dir, &profile, "init");
-    add_exe_to_initrd(&target_dir, &profile, "cli");
-    add_exe_to_initrd(&target_dir, &profile, "ls");
-    add_exe_to_initrd(&target_dir, &profile, "shutdown");
+    for &exe in USERSPACE_EXES {
+        add_exe_to_initrd(&target_dir, &profile, exe);
+    }
     
 
     let _ = Command::new("tar")

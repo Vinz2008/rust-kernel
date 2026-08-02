@@ -7,7 +7,7 @@ use spin::mutex::Mutex;
 use crate::{device::DeviceOps, initrd::{INITRD_BYTES, TarInitrd}, process::OpenedFile, scheduler::with_scheduler_no_int, serial_println};
 use lazy_static::lazy_static;
 
-pub fn process_open_file(path : &str, is_readable : bool, is_writable : bool) -> Option<Fd> {
+pub fn process_open_file(path : &str, is_readable : bool, is_writable : bool, create_file : bool) -> Option<Fd> {
     with_scheduler_no_int(|scheduler|{
         let canonicalized_path = {
             let current_cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes).cwd_path;
@@ -16,7 +16,7 @@ pub fn process_open_file(path : &str, is_readable : bool, is_writable : bool) ->
         let current_proc = scheduler.current_process.unwrap();
         let current_proc = current_proc.get_process_mut(&mut scheduler.processes);
         let fd = current_proc.fd_list.len();
-        let opened_file = OpenedFile::new(&canonicalized_path, is_readable, is_writable).ok()?;
+        let opened_file = OpenedFile::new(&canonicalized_path, is_readable, is_writable, create_file).ok()?;
         current_proc.fd_list.push(Some(opened_file));
         Some(Fd(fd))
     })
@@ -209,7 +209,7 @@ impl Inode {
         })
     }
 
-    fn new_mem_file() -> Arc<Inode> {
+    pub fn new_mem_file() -> Arc<Inode> {
         Arc::new(Inode { 
             idx: next_inode_idx(), 
             kind: InodeKind::File { data: FileData::Memory(Mutex::new(Vec::new())) }, 
@@ -568,6 +568,10 @@ lazy_static! {
         let root_node = fs_create_root_node(tar_initrd);
         root_node
     };
+}
+
+pub fn add_inode(path : &str, inode : Arc<Inode>) -> Result<(), FileError> {
+    add_inode_to_vfs_tree(ROOT_NODE.clone(), path, inode, false)
 }
 
 fn fs_create_root_node(tar_initrd : TarInitrd<'static>) -> Arc<Inode> {

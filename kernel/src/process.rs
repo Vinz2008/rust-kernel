@@ -1,10 +1,10 @@
 use core::{num::NonZero, ptr};
 
-use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use shared_consts::{USER_HEAP_SIZE, USER_HEAP_START};
 use x86_64::{PhysAddr, VirtAddr, instructions::interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
-use crate::{allocator::{allocate_userspace_level_4_table, map_page_at_in, map_page_phys_at_in}, fs::{FileError, Inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main, with_scheduler_no_int}, userspace::USER_STACK_TOP, utils::Registers};
+use crate::{allocator::{allocate_userspace_level_4_table, map_page_at_in, map_page_phys_at_in}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main, with_scheduler_no_int}, userspace::USER_STACK_TOP, utils::Registers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pid(pub NonZero<usize>);
@@ -59,8 +59,20 @@ pub struct OpenedFile {
 }
 
 impl OpenedFile {
-    pub fn new(path : &str, is_readable : bool, is_writable : bool) -> Result<OpenedFile, FileError> {
-        let inode = get_inode(path)?;
+    pub fn new(path : &str, is_readable : bool, is_writable : bool, create_file : bool) -> Result<OpenedFile, FileError> {
+        let inode = match get_inode(path){
+            Ok(i) => i,
+            Err(FileError::FileNotFound { path: err_path }) => {
+                if create_file {
+                    let inode = Inode::new_mem_file();
+                    add_inode(path, inode.clone())?;
+                    inode
+                } else {
+                    return Err(FileError::FileNotFound { path: Box::from(err_path) });
+                }
+            },
+            Err(e) => return Err(e),
+        };
         Ok(OpenedFile { 
             inode, 
             offset: 0, 

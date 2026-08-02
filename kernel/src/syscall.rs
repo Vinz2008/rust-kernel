@@ -1,7 +1,7 @@
 use core::{arch::naked_asm, ops::{ControlFlow, Deref, DerefMut}};
 
 use alloc::{slice, str, vec::Vec};
-use shared_consts::{Arg, DirChild, Fd, READABLE, SHUTDOWN_SUCCESS, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat, StatMode, WRITABLE};
+use shared_consts::{Arg, CREATE_FILE, DirChild, Fd, READABLE, SHUTDOWN_SUCCESS, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat, StatMode, WRITABLE};
 use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
 use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_get_dir_children, process_open_file}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, qemu::{self, QemuExitCode}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
@@ -388,9 +388,12 @@ fn syscall_open(regs : &mut SyscallRegs) -> Option<Fd> {
     let path_len = regs.get_arg(2) as usize;
     let mode = regs.get_arg(3);
     let path = create_str(path_ptr, path_len)?;
+    // TODO : use the bitflags crate instead ?
     let is_readable = (mode & READABLE) != 0;
     let is_writable = (mode & WRITABLE) != 0;
-    process_open_file(path, is_readable, is_writable)
+    let create_file = (mode & CREATE_FILE) != 0;
+    serial_println!("syscall open of path {}", path);
+    process_open_file(path, is_readable, is_writable, create_file)
 }
 
 fn syscall_close(regs : &mut SyscallRegs) -> Option<()> {
