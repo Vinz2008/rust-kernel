@@ -2,7 +2,7 @@ use core::{hint::unreachable_unchecked, mem::MaybeUninit};
 
 use alloc::vec::Vec;
 use arrayvec::ArrayString;
-use shared_consts::{Arg, DirChild, Fd, PATH_MAX, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
+use shared_consts::{Arg, DirChild, Fd, PATH_MAX, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_READ, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat};
 
 pub unsafe fn syscall0(syscall_nb : u64) -> u64 {
     let ret : u64;
@@ -223,5 +223,31 @@ pub fn syscall_change_cwd(dir : &str) -> Option<()> {
     match ret {
         u64::MAX => None,
         _ => Some(())
+    }
+}
+
+pub fn syscall_fstat(fd: Fd) -> Option<Stat> {
+    let mut stat = MaybeUninit::uninit();
+    let fd = fd.0 as u64;
+    let ret = unsafe {
+        syscall2(SYSCALL_STAT, fd, stat.as_mut_ptr() as u64)
+    };
+    match ret {
+        u64::MAX => None,
+        _ => unsafe { Some(stat.assume_init()) }
+    }
+}
+
+pub fn syscall_read(fd : Fd, buf : &mut [u8]) -> Option<usize> {
+    let fd = fd.0 as u64;
+    let buf_ptr = buf.as_mut_ptr() as u64;
+    let buf_size = buf.len() as u64;
+    let ret = unsafe {
+        syscall3(SYSCALL_READ, fd, buf_ptr, buf_size)
+    };
+
+    match ret {
+        u64::MAX => None,
+        _ => Some(ret as usize),
     }
 }

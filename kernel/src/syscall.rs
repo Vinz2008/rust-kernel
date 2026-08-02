@@ -1,10 +1,10 @@
 use core::{arch::naked_asm, ops::{ControlFlow, Deref, DerefMut}};
 
 use alloc::{slice, str, vec::Vec};
-use shared_consts::{Arg, CREATE_FILE, DirChild, Fd, READABLE, SHUTDOWN_SUCCESS, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, Stat, StatMode, WRITABLE};
+use shared_consts::{Arg, CREATE_FILE, DirChild, Fd, READABLE, SHUTDOWN_SUCCESS, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_FSTAT, SYSCALL_READ, Stat, StatMode, WRITABLE};
 use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_get_dir_children, process_open_file}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, qemu::{self, QemuExitCode}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{FileError, canonicalize_path, file_stat, file_stat_inode, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, qemu::{self, QemuExitCode}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 
 // TODO : deprecate the interrupt side for syscalls (how ? should I ?)
@@ -172,6 +172,8 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
         SYSCALL_SBRK => syscall_sbrk(regs),
         SYSCALL_SHUTDOWN => syscall_shutdown(regs),
         SYSCALL_CHANGE_CWD => syscall_change_cwd(regs).map(|_| 0),
+        SYSCALL_FSTAT => syscall_fstat(regs).map(|_| 0),
+        SYSCALL_READ => syscall_read(regs),
         _ => None,
     }.unwrap_or(u64::MAX);
     regs.rax = ret;
@@ -492,4 +494,35 @@ fn syscall_change_cwd(regs : &mut SyscallRegs) -> Option<()> {
         scheduler.current_process.unwrap().get_process_mut(&mut scheduler.processes).cwd_path = canonicalized_path;
         Some(())
     })
+}
+
+fn syscall_fstat(regs : &mut SyscallRegs) -> Option<()>{
+    let fd = regs.get_arg(1);
+    let fd = Fd(fd as usize);
+    let stat_ptr = regs.get_arg(2) as *mut Stat;
+
+    if !check_ptr(stat_ptr as usize, size_of::<Stat>(), true){
+        return None;
+    }
+
+    let stat = process_fstat(fd).ok()?;
+
+    unsafe {
+        *stat_ptr = stat;
+    }
+
+    Some(())
+}
+
+fn syscall_read(regs : &mut SyscallRegs) -> Option<u64> {
+    let fd = regs.get_arg(1);
+    let buf = regs.get_arg(2) as *mut u8;
+    let buf_size = regs.get_arg(3) as usize;
+
+    let fd = Fd(fd as usize);
+    let buf = create_buf(buf, buf_size)?;
+
+    let read = process_read(fd, buf).ok()? as u64;
+
+    Some(read)
 }

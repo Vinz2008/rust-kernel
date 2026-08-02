@@ -1,6 +1,6 @@
-use core::{arch::naked_asm, fmt::Write, sync::atomic::{AtomicU64, Ordering}};
+use core::{arch::naked_asm, fmt::Write, sync::atomic::{AtomicBool, AtomicU64, Ordering}};
 
-use pc_keyboard::{DecodedKey, HandleControl, KeyCode, PS2Keyboard, ScancodeSet1, layouts};
+use pc_keyboard::{DecodedKey, HandleControl, KeyCode, KeyState, PS2Keyboard, ScancodeSet1, layouts};
 use spin::Mutex;
 use x86_64::{PrivilegeLevel, VirtAddr, instructions::port::Port, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
@@ -176,32 +176,21 @@ const DELETE: char = '\u{007f}';
 // TODO : should I replace the ringbuf with a VecDeque (that would remove the size limit but would allocate dynamic memory)
 pub static KEYBOARD_RINGBUF : Mutex<RingBuf<char, 512>> = Mutex::new(RingBuf::new());
 
+static CTRL_DOWN: AtomicBool = AtomicBool::new(false);
+
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     let mut keyboard = KEYBOARD.lock();
     let mut port = Port::new(0x60);
     let scancode : u8 = unsafe { port.read() };
 
     if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
-        if let Some(key) = keyboard.process_keyevent(key_event) {
+        if let Some(key) = keyboard.process_keyevent(key_event.clone()) {
             match key {
                 DecodedKey::Unicode(c) => {
-                    /*match c {
-                        '\n' => {
-                            CLI_CONTEXT.lock().launch_cmd_cli();
-                        }
-                        DELETE | BACKSPACE => {
-                            WRITER.lock().remove_last_char();
-                            CLI_CONTEXT.lock().cursor.move_cursor(CursorMove::Left);
-                        },
-                        _ => {
-                            print!("{}", c);
-                            let mut cli_context_lock = CLI_CONTEXT.lock();
-                            cli_context_lock.add_char(c);
-                            cli_context_lock.cursor.move_cursor(CursorMove::Right);
-                        },
-                    }*/
                     serial_println!("keyboard: pushing {:?}", c);
-                    
+                    if c == 'c' && CTRL_DOWN.load(Ordering::Relaxed) {
+                        // TODO : handle the foreground process in the case (add the concept of foreground process, which is a global pid that is stopped on ctrl c, so set the new process as the foreground process, then after it exiting, set as the shell process as the foreground process, but after adding signals, add a SIGINT handler to not kill the shell when doing ctrl c)
+                    }
                     KEYBOARD_RINGBUF.lock().push(c);
                     serial_println!("keyboard: waking waiter");
                     SCHEDULER.lock().new_char();
@@ -219,6 +208,12 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
                             WRITER.lock().move_cursor(CursorMove::Right);
                         },
                         KeyCode::LShift => {}, // Do nothing, because pc-keyboard already does the shift for the chars
+                        KeyCode::LControl => {
+                            CTRL_DOWN.store(
+                                key_event.state == KeyState::Down,
+                                Ordering::Relaxed,
+                            );
+                        }
                         _ => serial_println!("{:?}", key),
                     }
                 },

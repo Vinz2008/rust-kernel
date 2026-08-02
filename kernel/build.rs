@@ -110,6 +110,7 @@ const USERSPACE_EXES : &[&str] = &[
     "ls",
     "shutdown",
     "touch",
+    "cat",
 ];
 
 fn main() {

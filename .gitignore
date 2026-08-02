@@ -5,3 +5,4 @@ initrd/cli
 initrd/ls
 initrd/shutdown
 initrd/touch
+initrd/cat

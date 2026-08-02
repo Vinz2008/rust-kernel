@@ -33,28 +33,42 @@ pub fn process_close_file(fd : Fd) -> Option<()> {
 }
 
 pub fn process_get_dir_children(fd : Fd, out : &mut [DirChild]) -> Result<usize, FileError> {
-    let (inode, offset) = with_scheduler_no_int(|scheduler|{
+    let opened_dir = with_scheduler_no_int(|scheduler|{
         let current_proc = scheduler.current_process.unwrap();
         let current_proc = current_proc.get_process(&scheduler.processes);
-        let opened_dir = current_proc.fd_list.get(fd.0).ok_or(FileError::FdNotFound)?.as_ref().unwrap();
-        let path = opened_dir.inode.clone();
-        let offset = opened_dir.offset;
-        Ok((path, offset))
+        let opened_dir = current_proc.fd_list.get(fd.0).ok_or(FileError::FdNotFound)?.as_ref().cloned().ok_or(FileError::FdNotFound)?;
+        Ok(opened_dir)
     })?;
 
-    let children_nb = inode.read_dir_children(offset, out)?;
-
-    with_scheduler_no_int(|scheduler|{
-        let current_proc = scheduler.current_process.unwrap();
-        let current_proc = current_proc.get_process_mut(&mut scheduler.processes);
-        let opened_dir = current_proc.fd_list.get_mut(fd.0).ok_or(FileError::FdNotFound)?.as_mut().unwrap();
-        opened_dir.offset += children_nb;
-        Ok(())
-    })?;
+    let mut offset_lock = opened_dir.offset.lock();
+    let children_nb = opened_dir.inode.read_dir_children(*offset_lock, out)?;
+    *offset_lock += children_nb;
 
     Ok(children_nb)
 }
 
+pub fn process_fstat(fd : Fd) -> Result<Stat, FileError> {
+    let inode = with_scheduler_no_int(|scheduler|{
+        let current_pid = scheduler.current_process.unwrap();
+        let current_proc = current_pid.get_process(&scheduler.processes);
+        let opened_file = current_proc.fd_list.get(fd.0).ok_or(FileError::FdNotFound)?.as_ref().ok_or(FileError::FdNotFound)?;
+        Ok(opened_file.inode.clone())
+    })?;
+    file_stat_inode(&inode)
+}
+
+pub fn process_read(fd : Fd, buf : &mut [u8]) -> Result<usize, FileError> {
+    let opened_file = with_scheduler_no_int(|scheduler|{
+        let current_pid = scheduler.current_process.unwrap();
+        let current_proc = current_pid.get_process(&scheduler.processes);
+        let opened_file = current_proc.fd_list.get(fd.0).ok_or(FileError::FdNotFound)?.as_ref().cloned().ok_or(FileError::FdNotFound)?;
+        Ok(opened_file)
+    })?;
+    let mut offset_lock = opened_file.offset.lock();
+    let read = opened_file.inode.read_at(*offset_lock, buf)?;
+    *offset_lock += read;
+    Ok(read)
+}
 
 // TODO : if it uses a lot perf, use cow instead ?
 // TODO : optimize performance ?
@@ -554,10 +568,15 @@ fn add_inode_to_vfs_tree(root : Arc<Inode>, path : &str, node : Arc<Inode>, crea
 }
 
 
+pub fn file_stat_inode(inode : &Arc<Inode>) -> Result<Stat, FileError> {
+    let stat = inode.stat();
+    Ok(stat)
+}
+
 pub fn file_stat(path : &str) -> Result<Stat, FileError> {
     serial_println!("file stat on {}", path);
     let file_node = get_inode(path)?;
-    let stat = file_node.stat();
+    let stat = file_stat_inode(&file_node)?;
 
     Ok(stat)
 }

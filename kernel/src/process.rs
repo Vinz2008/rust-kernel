@@ -2,6 +2,7 @@ use core::{num::NonZero, ptr};
 
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use shared_consts::{USER_HEAP_SIZE, USER_HEAP_START};
+use spin::Mutex;
 use x86_64::{PhysAddr, VirtAddr, instructions::interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
 use crate::{allocator::{allocate_userspace_level_4_table, map_page_at_in, map_page_phys_at_in}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main, with_scheduler_no_int}, userspace::USER_STACK_TOP, utils::Registers};
@@ -43,7 +44,7 @@ pub struct Process {
     pub saved_regs : Registers,
     pub kernel_context : KernelContext,
     pub cwd_path : String,
-    pub fd_list : Vec<Option<OpenedFile>>,
+    pub fd_list : Vec<Option<Arc<OpenedFile>>>,
     pub heap_start : VirtAddr,
     pub heap_break : VirtAddr,
     pub heap_max : VirtAddr,
@@ -53,13 +54,13 @@ pub struct Process {
 
 pub struct OpenedFile {
     pub inode : Arc<Inode>,
-    pub offset : usize,
+    pub offset : Mutex<usize>,
     readable : bool,
     writable : bool,
 }
 
 impl OpenedFile {
-    pub fn new(path : &str, is_readable : bool, is_writable : bool, create_file : bool) -> Result<OpenedFile, FileError> {
+    pub fn new(path : &str, is_readable : bool, is_writable : bool, create_file : bool) -> Result<Arc<OpenedFile>, FileError> {
         let inode = match get_inode(path){
             Ok(i) => i,
             Err(FileError::FileNotFound { path: err_path }) => {
@@ -73,12 +74,13 @@ impl OpenedFile {
             },
             Err(e) => return Err(e),
         };
-        Ok(OpenedFile { 
+        let opened_file = OpenedFile { 
             inode, 
-            offset: 0, 
+            offset: Mutex::new(0), 
             readable: is_readable, 
             writable: is_writable, 
-        })
+        };
+        Ok(Arc::new(opened_file))
     }
 }
 
