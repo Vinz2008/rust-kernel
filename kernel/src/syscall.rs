@@ -4,7 +4,7 @@ use alloc::{slice, str, vec::Vec};
 use shared_consts::{Arg, CREATE_FILE, DirChild, Fd, READABLE, SHUTDOWN_SUCCESS, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_FSTAT, SYSCALL_READ, Stat, StatMode, WRITABLE};
 use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{FileError, canonicalize_path, file_stat, file_stat_inode, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, qemu::{self, QemuExitCode}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, qemu::{self, QemuExitCode}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 
 // TODO : deprecate the interrupt side for syscalls (how ? should I ?)
@@ -452,7 +452,7 @@ fn syscall_sbrk(regs : &mut SyscallRegs) -> Option<u64> {
     if increment > 0 && map_start < map_end {    
         let start_page = Page::<Size4KiB>::containing_address(VirtAddr::new(map_start));
         let end_page = Page::<Size4KiB>::containing_address(VirtAddr::new(map_end-1));
-        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE;
+        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE | PageTableFlags::NO_EXECUTE;
         for page in Page::range_inclusive(start_page, end_page){
             match map_page_at_in(page_table_phys.start_address(), page.start_address(), flags){
                 Ok(_) => {},

@@ -14,7 +14,7 @@ extern crate alloc;
 use bootloader::{BootInfo, entry_point};
 use x86_64::VirtAddr;
 
-use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall, process::Process, utils::hlt_loop};
+use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall, process::Process, sse::init_fpu_template, utils::hlt_loop};
 
 
 mod tests;
@@ -36,6 +36,8 @@ mod interrupts;
 mod pic;
 
 mod gdt;
+
+mod sse;
 
 mod msr;
 mod acpi;
@@ -71,10 +73,13 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     #[cfg(test)]
     test_main();
 
+
     gdt::init();
     interrupts::init_idt();
 
     init_tss();
+
+    init_fpu_template();
 
     enable_syscall();
 

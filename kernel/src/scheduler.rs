@@ -26,6 +26,7 @@ pub struct Scheduler {
     pub processes : Vec<Process>,
     pub runnable_processes : VecDeque<Pid>,
     pub current_process : Option<Pid>,
+    is_fx_used : bool, // are there used user values in the fx registers that could need to be saved
     pub processes_waiting_keyboard : VecDeque<Pid>,
 }
 
@@ -60,6 +61,7 @@ pub static SCHEDULER : Mutex<Scheduler> = {
         runnable_processes: VecDeque::new(),
         processes_waiting_keyboard: VecDeque::new(),
         current_process: None,
+        is_fx_used : false,
     };
     Mutex::new(scheduler)
 };
@@ -174,39 +176,54 @@ fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, nex
     serial_println!("scheduling to pid {}", next_pid.0.get());
     scheduler.current_process = Some(next_pid);
 
-    let next_process = next_pid.get_process(&scheduler.processes);
+    let (next_state, next_page_table_phys, next_kernel_stack_top, next_saved_regs) = {
+        let next_process = next_pid.get_process(&scheduler.processes);
+        (next_process.state, next_process.page_table_phys, next_process.kernel_stack_top, next_process.saved_regs)
+    };
 
     unsafe {
-        Cr3::write(next_process.page_table_phys, Cr3Flags::empty());
+        Cr3::write(next_page_table_phys, Cr3Flags::empty());
     }
 
-    set_tss_privilege_stack(next_process.kernel_stack_top);
+    set_tss_privilege_stack(next_kernel_stack_top);
+
+    if current_pid != next_pid && scheduler.is_fx_used {
+        current_pid.get_process_mut(&mut scheduler.processes).fxstate.save();
+        scheduler.is_fx_used = false;
+    }
+
+    let next_is_user = matches!(next_state, SchedulerState::Ready(ReadyMode::User));
+
+    if next_is_user && !scheduler.is_fx_used {
+        next_pid.get_process(&scheduler.processes).fxstate.restore();
+        scheduler.is_fx_used = true;
+    }
+
 
     let current_state = current_pid.get_process(&scheduler.processes).state;
 
     let current_is_in_kernel = matches!(current_state, SchedulerState::WaitPid(_) | SchedulerState::WaitKeyboard);
 
-    match next_process.state {
+    match next_state {
         SchedulerState::Ready(ReadyMode::User) => {
             unsafe {
-                SYSCALL_KERNEL_RSP = next_process.kernel_stack_top.as_u64();
+                SYSCALL_KERNEL_RSP = next_kernel_stack_top.as_u64();
             }
-            let next_regs = next_process.saved_regs;
             match regs {
                 Some(regs) => {
                     if current_is_in_kernel {
                         let old_ctx = &mut current_pid.get_process_mut(&mut scheduler.processes).kernel_context as *mut KernelContext;
                         SwitchTarget::SwitchKernelToUser { 
                             old_ctx, 
-                            regs: next_regs, 
+                            regs: next_saved_regs, 
                         }
                     } else {
-                        *regs = next_regs;
+                        *regs = next_saved_regs;
                         SwitchTarget::ContinueCurrent
                     }
                 }
                 None => {
-                    SwitchTarget::SwitchUser(next_regs)
+                    SwitchTarget::SwitchUser(next_saved_regs)
                 }
             }
         }

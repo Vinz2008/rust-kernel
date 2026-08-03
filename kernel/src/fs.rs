@@ -17,10 +17,10 @@ pub fn process_open_file(path : &str, is_readable : bool, is_writable : bool, cr
         };
         let current_proc = scheduler.current_process.unwrap();
         let current_proc = current_proc.get_process_mut(&mut scheduler.processes);
-        let fd = current_proc.fd_list.len();
+        
         let opened_file = OpenedFile::new(&canonicalized_path, is_readable, is_writable, create_file).ok()?;
-        current_proc.fd_list.push(Some(opened_file));
-        Some(Fd(fd))
+        let fd = current_proc.add_opened_file(opened_file);
+        Some(fd)
     })
 }
 
@@ -28,9 +28,7 @@ pub fn process_close_file(fd : Fd) -> Option<()> {
     with_scheduler_no_int(|scheduler|{
         let current_proc = scheduler.current_process.unwrap();
         let current_proc = current_proc.get_process_mut(&mut scheduler.processes);
-        let idx = fd.0;
-        current_proc.fd_list.get_mut(idx)?.take();
-        Some(())
+        current_proc.remove_opened_file(fd)
     })
 }
 

@@ -37,6 +37,9 @@ checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 [[package]]
 name = "bootloader"
 version = "0.9.35"
+dependencies = [
+ "bit_field",
+]
 
 [[package]]
 name = "byteorder"

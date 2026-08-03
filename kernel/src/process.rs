@@ -1,11 +1,11 @@
 use core::{num::NonZero, ptr};
 
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
-use shared_consts::{USER_HEAP_SIZE, USER_HEAP_START};
+use shared_consts::{Fd, USER_HEAP_SIZE, USER_HEAP_START};
 use spin::Mutex;
 use x86_64::{PhysAddr, VirtAddr, instructions::interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
-use crate::{allocator::{allocate_userspace_level_4_table, map_page_at_in, map_page_phys_at_in}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main, with_scheduler_no_int}, userspace::USER_STACK_TOP, utils::Registers};
+use crate::{allocator::{allocate_userspace_level_4_table, map_page_at_in, map_page_phys_at_in}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main, with_scheduler_no_int}, sse::{DEFAULT_FXSTATE, FxState}, userspace::USER_STACK_TOP, utils::Registers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pid(pub NonZero<usize>);
@@ -40,11 +40,13 @@ pub struct Process {
     pub kernel_stack_top : VirtAddr,
     pub page_table_phys : PhysFrame,
     pub state : SchedulerState,
-    pub process_kind : ProcessKind,
+    pub process_kind : ProcessKind, // TODO : remove this ?
     pub saved_regs : Registers,
     pub kernel_context : KernelContext,
+    pub fxstate : FxState,
     pub cwd_path : String,
-    pub fd_list : Vec<Option<Arc<OpenedFile>>>,
+    pub fd_list : Vec<Option<Arc<OpenedFile>>>, // TODO : replace this with a SmallVec ?
+    pub free_fd_nb : usize,
     pub heap_start : VirtAddr,
     pub heap_break : VirtAddr,
     pub heap_max : VirtAddr,
@@ -92,40 +94,69 @@ const KERNEL_PROC_STACK_GUARD_SIZE: u64 = 4096; // 1 page
 
 const SLOT_SIZE : u64 = KERNEL_PROC_STACK_GUARD_SIZE + KERNEL_PROC_STACK_SIZE;
 
-impl Process {
+fn allocate_kernel_stack(new_process_idx : usize, page_table_phys : PhysFrame) -> u64 {
+    // stack starts at the end
+    let stack_slot_start = KERNEL_PROC_STACK_BASE + new_process_idx as u64 * SLOT_SIZE;
+    let stack_start = stack_slot_start + KERNEL_PROC_STACK_GUARD_SIZE;
+    let stack_end = stack_start + KERNEL_PROC_STACK_SIZE;
+    let virt_stack_start = VirtAddr::new(stack_start);
+    let virt_stack_end = VirtAddr::new(stack_end-1);
+    let kernel_stack_start_page = Page::<Size4KiB>::containing_address(virt_stack_start);
+    let kernel_stack_end_page = Page::containing_address(virt_stack_end);
+    let page_range = Page::range_inclusive(kernel_stack_start_page, kernel_stack_end_page);
+    for page in page_range {
+        map_page_at_in(page_table_phys.start_address(), page.start_address(), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE).unwrap(); // TODO : should I realy unwrap ?
+    }
+    stack_end
+}
 
-    fn allocate_kernel_stack(new_process_idx : usize, page_table_phys : PhysFrame) -> u64 {
-        // stack starts at the end
-        let stack_slot_start = KERNEL_PROC_STACK_BASE + new_process_idx as u64 * SLOT_SIZE;
-        let stack_start = stack_slot_start + KERNEL_PROC_STACK_GUARD_SIZE;
-        let stack_end = stack_start + KERNEL_PROC_STACK_SIZE;
-        let virt_stack_start = VirtAddr::new(stack_start);
-        let virt_stack_end = VirtAddr::new(stack_end-1);
-        let kernel_stack_start_page = Page::<Size4KiB>::containing_address(virt_stack_start);
-        let kernel_stack_end_page = Page::containing_address(virt_stack_end);
-        let page_range = Page::range_inclusive(kernel_stack_start_page, kernel_stack_end_page);
-        for page in page_range {
-            map_page_at_in(page_table_phys.start_address(), page.start_address(), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE).unwrap(); // TODO : should I realy unwrap ?
+impl Process {
+    pub fn add_opened_file(&mut self, file : Arc<OpenedFile>) -> Fd {
+        if self.free_fd_nb == 0 {
+            let fd = self.fd_list.len();
+            self.fd_list.push(Some(file));
+            return Fd(fd);
         }
-        stack_end
+        for (idx, f) in self.fd_list.iter_mut().enumerate(){
+            if f.is_none(){
+                *f = Some(file);
+                self.free_fd_nb -= 1;
+                return Fd(idx);
+            }
+        }
+        
+        unreachable!();
+    }
+
+    pub fn remove_opened_file(&mut self, fd: Fd) -> Option<()> {
+        let _ = self.fd_list.get_mut(fd.0)?.take();
+        self.free_fd_nb += 1;
+
+        // close all the None at the end (it will keep the allocated part which speeds up the push, and prevent the need to scan the vec for free fd)
+        while let Some(None) = self.fd_list.last(){
+            self.fd_list.pop();
+            self.free_fd_nb -= 1;
+        }
+        
+        Some(())
     }
 
     pub fn empty_process(cwd_path : String) -> Pid {
-        // TODO : use the dead process pid
+        // TODO : use the dead processes pid
         with_scheduler_no_int(|scheduler|{
             let new_process_idx = scheduler.processes.len();
             let new_process_pid = new_process_idx + 1;
             let new_process_pid = Pid(NonZero::new(new_process_pid).unwrap());
             let page_table_phys = allocate_userspace_level_4_table();
             
-            let stack_end = Process::allocate_kernel_stack(new_process_idx, page_table_phys);
+            let stack_end = allocate_kernel_stack(new_process_idx, page_table_phys);
 
             let parent_pid = scheduler.current_process;
             if let Some(parent_pid) = parent_pid {
                 parent_pid.get_process_mut(&mut scheduler.processes).children.push(new_process_pid);
             }
 
-            map_page_phys_at_in(page_table_phys.start_address(), PhysFrame::containing_address(PhysAddr::new(0xb8000)), VirtAddr::new(0xb8000), PageTableFlags::PRESENT | PageTableFlags::WRITABLE).unwrap(); // TODO : should I realy unwrap ?
+            map_page_phys_at_in(page_table_phys.start_address(), PhysFrame::containing_address(PhysAddr::new(0xb8000)), VirtAddr::new(0xb8000), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE).unwrap(); // TODO : should I realy unwrap ?
             scheduler.processes.push(Process { 
                 pid: new_process_pid, 
                 children: Vec::new(),
@@ -136,8 +167,10 @@ impl Process {
                 process_kind: ProcessKind::User,
                 saved_regs: Registers::default(),
                 kernel_context: KernelContext::default(),
+                fxstate: DEFAULT_FXSTATE.get().unwrap().clone(),
                 cwd_path,
                 fd_list: Vec::new(),
+                free_fd_nb: 0,
                 heap_start: VirtAddr::new(USER_HEAP_START as u64),
                 heap_break: VirtAddr::new(USER_HEAP_START as u64),
                 heap_max: VirtAddr::new((USER_HEAP_START + USER_HEAP_SIZE) as u64),
@@ -162,7 +195,7 @@ impl Process {
 
         let (kernel_page_table, _) = Cr3::read();
 
-        let kernel_stack_end = Process::allocate_kernel_stack(new_process_idx, kernel_page_table);
+        let kernel_stack_end = allocate_kernel_stack(new_process_idx, kernel_page_table);
 
         let entrypoint = idle_main as *const () as usize;
 
@@ -191,8 +224,10 @@ impl Process {
             process_kind: ProcessKind::Kernel,
             saved_regs,
             kernel_context,
+            fxstate: DEFAULT_FXSTATE.get().unwrap().clone(),
             cwd_path: String::new(),
             fd_list: Vec::new(),
+            free_fd_nb: 0,
             heap_start: VirtAddr::new(0),
             heap_break: VirtAddr::new(0),
             heap_max: VirtAddr::new(0),

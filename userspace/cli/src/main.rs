@@ -9,7 +9,6 @@ fn handle_cli(cli : &str){
     let command_name = match command_name {
         Some(cmd_name) => cmd_name,
         None => {
-            println!("empty command");
             return;
         }
     };
