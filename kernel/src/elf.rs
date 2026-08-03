@@ -40,6 +40,7 @@ fn load_segment(content: &[u8], process : &Process, prog_header : &ProgramHeader
     let virt_addr = prog_header.p_vaddr;
     let memory_size = prog_header.p_memsz as usize;
     let file_size = prog_header.p_filesz as usize;
+    let elf_mem_flags = prog_header.p_flags;
 
     if file_size > memory_size {
         return Err(ElfError::InvalidElf);
@@ -55,7 +56,7 @@ fn load_segment(content: &[u8], process : &Process, prog_header : &ProgramHeader
     let start_page = Page::<Size4KiB>::containing_address(start);
     let end_page = Page::<Size4KiB>::containing_address(end);
 
-    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE;
+    let flags = elf_to_page_permission(elf_mem_flags);
     
     let phys_offset = PHYSICAL_MEMORY_OFFSET.get().unwrap().as_u64();
 

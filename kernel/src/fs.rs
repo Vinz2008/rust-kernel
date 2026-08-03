@@ -7,6 +7,8 @@ use spin::mutex::Mutex;
 use crate::{device::DeviceOps, initrd::{INITRD_BYTES, TarInitrd}, process::OpenedFile, scheduler::with_scheduler_no_int, serial_println};
 use lazy_static::lazy_static;
 
+// TODO : file permissions (first need users, maybe root/admin user ? search about it)
+
 pub fn process_open_file(path : &str, is_readable : bool, is_writable : bool, create_file : bool) -> Option<Fd> {
     with_scheduler_no_int(|scheduler|{
         let canonicalized_path = {
