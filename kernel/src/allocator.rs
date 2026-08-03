@@ -1,6 +1,6 @@
 use linked_list_allocator::LockedHeap;
 use spin::{Mutex, MutexGuard, Once};
-use x86_64::{PhysAddr, VirtAddr, structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB, Translate, mapper::{MapToError, TranslateResult}}};
+use x86_64::{PhysAddr, VirtAddr, structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size2MiB, Size4KiB, Translate, mapper::{MapToError, TranslateResult}}};
 
 use crate::{paging::{BootInfoFrameAllocator, PHYSICAL_MEMORY_OFFSET, active_level_4_table}};
 
@@ -17,11 +17,13 @@ pub struct MemoryManager {
 pub static MEMORY_MANAGER: Once<Mutex<MemoryManager>> = Once::new();
 
 
-fn init_heap_mapping(mapper: &mut impl Mapper<Size4KiB>, frame_allocator : &mut impl FrameAllocator<Size4KiB>) -> Result<(), MapToError<Size4KiB>>{
+fn init_heap_mapping<F>(mapper: &mut impl Mapper<Size2MiB>, frame_allocator : &mut F) -> Result<(), MapToError<Size2MiB>>
+    where F : FrameAllocator<Size4KiB> + FrameAllocator<Size2MiB>
+{
     let heap_start = VirtAddr::new(KERNEL_HEAP_START as u64);
     let heap_end = heap_start + (KERNEL_HEAP_SIZE as u64) - 1;
-    let heap_start_page = Page::containing_address(heap_start);
-    let heap_end_page = Page::containing_address(heap_end);
+    let heap_start_page = Page::<Size2MiB>::containing_address(heap_start);
+    let heap_end_page = Page::<Size2MiB>::containing_address(heap_end);
     let page_range = Page::range_inclusive(heap_start_page, heap_end_page);
 
     for page in page_range {
@@ -34,7 +36,7 @@ fn init_heap_mapping(mapper: &mut impl Mapper<Size4KiB>, frame_allocator : &mut 
     Ok(())
 }
 
-pub fn init_heap(mut mapper: OffsetPageTable<'static>, mut frame_allocator : BootInfoFrameAllocator) -> Result<(), MapToError<Size4KiB>> {
+pub fn init_heap(mut mapper: OffsetPageTable<'static>, mut frame_allocator : BootInfoFrameAllocator) -> Result<(), MapToError<Size2MiB>> {
     init_heap_mapping(&mut mapper, &mut frame_allocator)?;
     MEMORY_MANAGER.call_once(|| Mutex::new(MemoryManager {
         frame_allocator,

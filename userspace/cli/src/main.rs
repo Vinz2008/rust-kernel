@@ -29,7 +29,6 @@ fn handle_cli(cli : &str){
         "pwd" => {
             let cwd = syscall_get_cwd().unwrap();
             println!("{}", cwd);
-            
         }
         "cd" => {
             let dir = match cli_split.next(){

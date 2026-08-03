@@ -1,6 +1,6 @@
 use bootloader::{bootinfo::{MemoryMap, MemoryRegionType}};
 use spin::Once;
-use x86_64::{PhysAddr, VirtAddr, align_up, registers::control::Cr3, structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB, page_table::FrameError}};
+use x86_64::{PhysAddr, VirtAddr, align_up, registers::control::Cr3, structures::paging::{FrameAllocator, OffsetPageTable, PageSize, PageTable, PhysFrame, page_table::FrameError}};
 
 use crate::allocator::pml4_index;
 
@@ -84,33 +84,34 @@ impl BootInfoFrameAllocator {
     }
 }
 
-const PAGE_SIZE : usize = 4096; // TODO : change this when using huge pages (pass through args ?)
 
-unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
-    fn allocate_frame(&mut self) -> Option<PhysFrame> {
+unsafe impl<S : PageSize> FrameAllocator<S> for BootInfoFrameAllocator {
+    fn allocate_frame(&mut self) -> Option<PhysFrame<S>> {
+        let size = S::SIZE;
         loop {
-            let region = self.memory_map[self.region_idx];
+            let region = *self.memory_map.get(self.region_idx)?;
             if region.region_type != MemoryRegionType::Usable {
                 self.region_idx += 1;
                 self.next_addr = 0;
                 continue;
             }
-            if self.next_addr == 0 {
-                self.next_addr = align_up(region.range.start_addr(), PAGE_SIZE as u64) as usize;
+            let candidate = if self.next_addr == 0 {
+                align_up(region.range.start_addr(), size)
+            } else {
+                align_up(self.next_addr as u64, size)
+            };
+            
+            let frame_end = candidate.checked_add(size)?;
+
+
+            let region_end = region.range.end_addr();
+            if frame_end <= region_end {
+                self.next_addr = frame_end as usize;
+                return PhysFrame::<S>::from_start_address(PhysAddr::new(self.next_addr as u64)).ok();
             }
             
-            let frame_end = self.next_addr.checked_add(PAGE_SIZE)?;
-
-
-            let region_end = region.range.end_addr() as usize;
-            if frame_end <= region_end {
-                let frame = PhysFrame::from_start_address(PhysAddr::new(self.next_addr as u64)).ok()?;
-                self.next_addr = frame_end;
-                return Some(frame);
-            } else {
-                self.region_idx += 1;
-                self.next_addr = 0;
-            }
+            self.region_idx += 1;
+            self.next_addr = 0;
         }
     }
 }
