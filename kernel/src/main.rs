@@ -8,9 +8,10 @@
 
 #![feature(abi_x86_interrupt)]
 
+#![allow(clippy::let_and_return)]
+
 extern crate alloc;
 
-//use alloc::{boxed::Box, rc::Rc, vec::Vec, vec};
 use bootloader::{BootInfo, entry_point};
 use x86_64::VirtAddr;
 

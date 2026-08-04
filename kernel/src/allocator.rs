@@ -267,7 +267,7 @@ fn _map_page_phys_at_in(mem_manager_lock : &mut MemoryManager, page_table : Phys
 
 pub fn map_page_phys_at_in(page_table : PhysAddr, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<MapperFlush<Size4KiB>, MapToError<x86_64::structures::paging::Size4KiB>> {
     let mut mem_manager_lock = MEMORY_MANAGER.get().unwrap().lock();
-    _map_page_phys_at_in(&mut *mem_manager_lock, page_table, phys_frame, virt_addr, flags)
+    _map_page_phys_at_in(&mut mem_manager_lock, page_table, phys_frame, virt_addr, flags)
 }
 
 pub fn map_page_at_in(page_table : PhysAddr, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<MapperFlush<Size4KiB>, MapToError<x86_64::structures::paging::Size4KiB>>{

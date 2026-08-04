@@ -75,20 +75,6 @@ impl BootInfoFrameAllocator {
             next_addr: 0,
         }
     }
-
-    /*fn usable_frames(&self) -> impl Iterator<Item = PhysFrame> {
-        let regions = self.memory_map.iter();
-        let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
-        let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
-        
-        let frame_addresses = addr_ranges.flat_map(|r| r.step_by(PAGE_SIZE));
-        frame_addresses.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
-    }*/
-
-    // TODO : remove this
-    /*pub fn get_memory_map_pml4_index(&self) -> usize {
-        pml4_index(self.memory_map as *const _ as u64)
-    }*/
 }
 
 

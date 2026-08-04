@@ -71,7 +71,7 @@ impl OpenedFile {
                     add_inode(path, inode.clone())?;
                     inode
                 } else {
-                    return Err(FileError::FileNotFound { path: Box::from(err_path) });
+                    return Err(FileError::FileNotFound { path: err_path });
                 }
             },
             Err(e) => return Err(e),
