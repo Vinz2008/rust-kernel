@@ -1,4 +1,4 @@
-use core::arch::naked_asm;
+use core::{arch::naked_asm, num::NonZero};
 
 use alloc::{collections::vec_deque::VecDeque, vec::Vec};
 use spin::Mutex;
@@ -24,6 +24,7 @@ pub enum ReadyMode {
 
 pub struct Scheduler {
     pub processes : Vec<Process>,
+    dead_processes_count : usize,
     pub runnable_processes : VecDeque<Pid>,
     pub current_process : Option<Pid>,
     is_fx_used : bool, // are there used user values in the fx registers that could need to be saved
@@ -35,6 +36,26 @@ impl Scheduler {
         if let Some(pid) = self.processes_waiting_keyboard.pop_front() {
             self.make_runnable_inner(pid, ReadyMode::Kernel);
         }
+    }
+
+    pub fn add_process(&mut self, mut process : Process) -> Pid {
+        if self.dead_processes_count == 0 {
+            let pid_idx = self.processes.len();
+            let pid = Pid(NonZero::new(pid_idx + 1).unwrap());
+            process.pid = pid;
+            self.processes.push(process);
+            return pid;
+        }
+
+        for (idx, proc) in self.processes.iter_mut().enumerate(){
+            if proc.state == SchedulerState::Dead {
+                *proc = process;
+                self.dead_processes_count -= 1;
+                return Pid(NonZero::new(idx + 1).unwrap());
+            }
+        }
+
+        unreachable!()
     }
 
     fn make_runnable_inner(&mut self, pid : Pid, ready_mode : ReadyMode){
@@ -53,11 +74,17 @@ impl Scheduler {
     pub fn make_runnable_kernel(&mut self, pid : Pid){
         self.make_runnable_inner(pid, ReadyMode::Kernel);
     }
+
+    pub fn mark_dead(&mut self, pid: Pid){
+        pid.get_process_mut(&mut self.processes).state = SchedulerState::Dead;
+        self.dead_processes_count += 1;
+    }
 }
 
 pub static SCHEDULER : Mutex<Scheduler> = {
     let scheduler = Scheduler {
         processes: Vec::new(),
+        dead_processes_count: 0,
         runnable_processes: VecDeque::new(),
         processes_waiting_keyboard: VecDeque::new(),
         current_process: None,

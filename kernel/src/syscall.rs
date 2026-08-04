@@ -348,7 +348,7 @@ fn syscall_wait_pid(regs : &mut SyscallRegs) -> Option<()> {
 
             if let SchedulerState::Zombie(exit_code) = waited_pid.get_process(&scheduler.processes).state {
                 regs.rax = exit_code as u64;
-                waited_pid.get_process_mut(&mut scheduler.processes).state = SchedulerState::Dead;
+                scheduler.mark_dead(waited_pid);
                 current_pid.get_process_mut(&mut scheduler.processes).children.retain(|&pid| pid != waited_pid);
                 cleanup_process_complete(waited_pid.get_process(&scheduler.processes));
                 return ControlFlow::Break(Some(()));

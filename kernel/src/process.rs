@@ -226,26 +226,18 @@ impl Process {
     }
 
     pub fn empty_process(cwd_path : String) -> Pid {
-        // TODO : use the dead processes pid
         with_scheduler_no_int(|scheduler|{
-            let new_process_idx = scheduler.processes.len();
-            let new_process_pid = new_process_idx + 1;
-            let new_process_pid = Pid(NonZero::new(new_process_pid).unwrap());
+
             let page_table_phys = allocate_userspace_level_4_table();
             
-            let stack_end = allocate_kernel_stack(new_process_idx, page_table_phys);
-
             let parent_pid = scheduler.current_process;
-            if let Some(parent_pid) = parent_pid {
-                parent_pid.get_process_mut(&mut scheduler.processes).children.push(new_process_pid);
-            }
 
             map_page_phys_at_in(page_table_phys.start_address(), PhysFrame::containing_address(PhysAddr::new(0xb8000)), VirtAddr::new(0xb8000), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE).unwrap(); // TODO : should I realy unwrap ?
-            scheduler.processes.push(Process { 
-                pid: new_process_pid, 
+            let new_process_pid = scheduler.add_process(Process { 
+                pid: Pid(NonZero::new(usize::MAX).unwrap()), // will be replaced in add_process
                 children: Vec::new(),
                 parent: parent_pid,
-                kernel_stack_top: VirtAddr::new(stack_end), 
+                kernel_stack_top: VirtAddr::new(0), // is replaced just after 
                 page_table_phys,
                 state: SchedulerState::Loading,
                 process_kind: ProcessKind::User,
@@ -259,6 +251,16 @@ impl Process {
                 heap_break: VirtAddr::new(USER_HEAP_START as u64),
                 heap_max: VirtAddr::new((USER_HEAP_START + USER_HEAP_SIZE) as u64),
             });
+
+            let new_process_idx = new_process_pid.0.get() - 1;
+
+            let stack_end = allocate_kernel_stack(new_process_idx, page_table_phys);
+
+            new_process_pid.get_process_mut(&mut scheduler.processes).kernel_stack_top = VirtAddr::new(stack_end);
+
+            if let Some(parent_pid) = parent_pid {
+                parent_pid.get_process_mut(&mut scheduler.processes).children.push(new_process_pid);
+            }
 
             new_process_pid
         })
