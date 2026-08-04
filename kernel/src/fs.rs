@@ -174,6 +174,7 @@ pub enum FileError {
         path: Box<str>,
     },
     FdNotFound,
+    NotWritableFIle,
 }
 
 //const EMPTY_CONTENT : &[u8] = &[];
@@ -299,6 +300,34 @@ impl Inode {
                 },
             }, 
             InodeKind::Device { device_ops } => device_ops.read(offset, out),
+            InodeKind::Directory { .. } => Err(FileError::FileExpected { path: Box::default() }),
+        }
+    }
+
+    // TODO : use this (implement syscall)
+    fn write_at(&self, offset : usize, input : &[u8]) -> Result<usize, FileError> {
+        match &self.kind {
+            InodeKind::File { data } => match data {
+                FileData::Initrd(_) => {
+                    Err(FileError::NotWritableFIle)
+                },
+                FileData::Memory(data) => {
+                    let mut data_lock = data.lock();
+
+                    if offset > data_lock.len() {
+                        // fill hole if offset is after the end of file
+                        data_lock.resize(offset, 0);
+                    }
+
+                    let overwrite_len = input.len().min(data_lock.len()-offset);
+
+                    data_lock[offset..offset+overwrite_len].copy_from_slice(&input[..overwrite_len]);
+                    data_lock.extend_from_slice(&input[overwrite_len..]);
+
+                    Ok(input.len())
+                },
+            }, 
+            InodeKind::Device { device_ops } => device_ops.write(offset, input),
             InodeKind::Directory { .. } => Err(FileError::FileExpected { path: Box::default() }),
         }
     }
