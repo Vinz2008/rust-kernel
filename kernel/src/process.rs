@@ -188,10 +188,8 @@ pub fn cleanup_process_mem_soft(process : &Process){
 // TODO : call when cleaning up zombie processes
 pub fn cleanup_process_complete(process : &Process){
     serial_println!("cleanup complete");
-    // TODO (URGENT) : before deallocating the kernel stack, need to not be on the stack (how to do it ? have a temporary stack ? or just do it after switching to the next stack ?)
     serial_println!("before kernel stack cleanup");
-    // TODO : reenable this (for now it crashes)
-    //deallocate_kernel_stack(process.kernel_stack_top, process.page_table_phys);
+    deallocate_kernel_stack(process.kernel_stack_top, process.page_table_phys);
     deallocate_userspace_level_4_table(process.page_table_phys);
     serial_println!("after PML4 cleanup");
 }

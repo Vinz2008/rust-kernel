@@ -181,11 +181,12 @@ fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, nex
         (next_process.state, next_process.page_table_phys, next_process.kernel_stack_top, next_process.saved_regs)
     };
 
+    set_tss_privilege_stack(next_kernel_stack_top);
+
     unsafe {
+        SYSCALL_KERNEL_RSP = next_kernel_stack_top.as_u64();
         Cr3::write(next_page_table_phys, Cr3Flags::empty());
     }
-
-    set_tss_privilege_stack(next_kernel_stack_top);
 
     if current_pid != next_pid && scheduler.is_fx_used {
         current_pid.get_process_mut(&mut scheduler.processes).fxstate.save();
@@ -206,9 +207,6 @@ fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, nex
 
     match next_state {
         SchedulerState::Ready(ReadyMode::User) => {
-            unsafe {
-                SYSCALL_KERNEL_RSP = next_kernel_stack_top.as_u64();
-            }
             match regs {
                 Some(regs) => {
                     if current_is_in_kernel {
