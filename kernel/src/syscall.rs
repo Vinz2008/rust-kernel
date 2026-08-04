@@ -456,7 +456,9 @@ fn syscall_sbrk(regs : &mut SyscallRegs) -> Option<u64> {
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE | PageTableFlags::NO_EXECUTE;
         for page in Page::range_inclusive(start_page, end_page){
             match map_page_at_in(page_table_phys.start_address(), page.start_address(), flags){
-                Ok(_) => {},
+                Ok(flush) => {
+                    flush.flush();
+                },
                 Err(MapToError::PageAlreadyMapped(_)) => {},
                 Err(e) => panic!("error when mapping user heap pages in sbrk : {:?}", e),
             }

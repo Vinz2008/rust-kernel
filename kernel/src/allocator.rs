@@ -1,14 +1,14 @@
 use alloc::vec;
 use alloc::vec::{Vec};
-use bootloader::bootinfo::{MemoryMap, MemoryRegionType};
+use bootloader::bootinfo::MemoryRegionType;
 use linked_list_allocator::LockedHeap;
-use spin::{Mutex, MutexGuard, Once};
+use spin::{Mutex, Once};
 use x86_64::align_down;
-use x86_64::registers::control::Cr3;
 use x86_64::structures::paging::FrameDeallocator;
+use x86_64::structures::paging::mapper::MapperFlush;
 use x86_64::{PhysAddr, VirtAddr, align_up, structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageSize, PageTable, PageTableFlags, PhysFrame, Size2MiB, Size4KiB, Translate, mapper::{MapToError, TranslateResult}}};
 
-use crate::paging::translate_addr_in;
+use crate::paging::reload_cr3;
 use crate::serial_println;
 use crate::{paging::{BootInfoFrameAllocator, PHYSICAL_MEMORY_OFFSET, active_level_4_table}};
 
@@ -38,46 +38,12 @@ fn init_heap_mapping<F>(mapper: &mut impl Mapper<Size2MiB>, boot_frame_allocator
         let frame = boot_frame_allocator.allocate_frame().ok_or(MapToError::FrameAllocationFailed)?;
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
         unsafe {
-            mapper.map_to(page, frame, flags, boot_frame_allocator)?.flush();
+            mapper.map_to(page, frame, flags, boot_frame_allocator)?.ignore();
         }
     }
+    reload_cr3(); // to flush tlb, because of the ignore
+
     Ok(())
-}
-
-fn inspect_heap_p2(
-    p4_frame: PhysFrame<Size4KiB>,
-    phys_offset: VirtAddr,
-) {
-    let addr = VirtAddr::new(KERNEL_HEAP_START as u64);
-
-    let table = |frame: PhysFrame<Size4KiB>| -> &'static PageTable {
-        let virt = phys_offset + frame.start_address().as_u64();
-        unsafe { &*virt.as_ptr::<PageTable>() }
-    };
-
-    let p4 = table(p4_frame);
-    let p4e = &p4[addr.p4_index()];
-    serial_println!(
-        "P4 addr={:#x}, flags={:?}",
-        p4e.addr().as_u64(),
-        p4e.flags()
-    );
-
-    let p3 = table(p4e.frame().unwrap());
-    let p3e = &p3[addr.p3_index()];
-    serial_println!(
-        "P3 addr={:#x}, flags={:?}",
-        p3e.addr().as_u64(),
-        p3e.flags()
-    );
-
-    let p2 = table(p3e.frame().unwrap());
-    let p2e = &p2[addr.p2_index()];
-    serial_println!(
-        "P2 addr={:#x}, flags={:?}",
-        p2e.addr().as_u64(),
-        p2e.flags()
-    );
 }
 
 pub struct BitMapFrameAllocator {
@@ -273,12 +239,13 @@ pub fn init_heap(mut mapper: OffsetPageTable<'static>, mut boot_frame_allocator 
     Ok(())
 }
 
-fn map_page_inner(mapper : &mut OffsetPageTable<'_>, frame_allocator : &mut BitMapFrameAllocator, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<(), MapToError<x86_64::structures::paging::Size4KiB>> {
+fn map_page_inner(mapper : &mut OffsetPageTable<'_>, frame_allocator : &mut BitMapFrameAllocator, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<MapperFlush<Size4KiB>, MapToError<Size4KiB>> {
     let page = Page::containing_address(virt_addr);
-    // TODO : should I flush only if the page table is the current one ?
-    unsafe {
-        mapper.map_to(page, phys_frame, flags, frame_allocator).map(|f| f.flush())
-    }
+    
+    let flush = unsafe {
+        mapper.map_to(page, phys_frame, flags, frame_allocator)?
+    };
+    Ok(flush)
 }
 
 pub fn get_page_flags_in(mapper : &mut OffsetPageTable<'_>, virt_addr: VirtAddr) -> Option<PageTableFlags> {
@@ -288,15 +255,7 @@ pub fn get_page_flags_in(mapper : &mut OffsetPageTable<'_>, virt_addr: VirtAddr)
     }
 }
 
-pub fn map_page_at_in(page_table : PhysAddr, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<(), MapToError<x86_64::structures::paging::Size4KiB>>{
-    let mut mem_manager_lock = MEMORY_MANAGER.get().unwrap().lock();
-
-    let phys_frame = mem_manager_lock.frame_allocator.allocate_frame().expect("no frame available");
-
-    _map_page_phys_at_in(&mut mem_manager_lock, page_table, phys_frame, virt_addr, flags)
-}
-
-fn _map_page_phys_at_in(mem_manager_lock : &mut MemoryManager, page_table : PhysAddr, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<(), MapToError<x86_64::structures::paging::Size4KiB>> {
+fn _map_page_phys_at_in(mem_manager_lock : &mut MemoryManager, page_table : PhysAddr, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<MapperFlush<Size4KiB>, MapToError<x86_64::structures::paging::Size4KiB>> {
     let phys_offset = *PHYSICAL_MEMORY_OFFSET.get().unwrap();
     let page_table_virt = phys_offset + page_table.as_u64();
     let page_table_ptr: *mut PageTable = page_table_virt.as_mut_ptr();
@@ -306,9 +265,17 @@ fn _map_page_phys_at_in(mem_manager_lock : &mut MemoryManager, page_table : Phys
     map_page_inner(&mut mapper, &mut mem_manager_lock.frame_allocator, phys_frame, virt_addr, flags)
 }
 
-pub fn map_page_phys_at_in(page_table : PhysAddr, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<(), MapToError<x86_64::structures::paging::Size4KiB>> {
+pub fn map_page_phys_at_in(page_table : PhysAddr, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<MapperFlush<Size4KiB>, MapToError<x86_64::structures::paging::Size4KiB>> {
     let mut mem_manager_lock = MEMORY_MANAGER.get().unwrap().lock();
     _map_page_phys_at_in(&mut *mem_manager_lock, page_table, phys_frame, virt_addr, flags)
+}
+
+pub fn map_page_at_in(page_table : PhysAddr, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<MapperFlush<Size4KiB>, MapToError<x86_64::structures::paging::Size4KiB>>{
+    let mut mem_manager_lock = MEMORY_MANAGER.get().unwrap().lock();
+
+    let phys_frame = mem_manager_lock.frame_allocator.allocate_frame().expect("no frame available");
+
+    _map_page_phys_at_in(&mut mem_manager_lock, page_table, phys_frame, virt_addr, flags)
 }
 
 
@@ -353,13 +320,6 @@ pub fn allocate_userspace_level_4_table() -> PhysFrame {
     for i in 256..512 {
         page_table[i] = current_page_table[i].clone();
     }
-
-    // TODO : do I really need this ?
-    let physmap_idx = pml4_index(physical_memory_offset.as_u64());
-    page_table[physmap_idx] = current_page_table[physmap_idx].clone();
-
-    //let memory_map_idx = MEMORY_MANAGER.get().unwrap().lock().frame_allocator.get_memory_map_pml4_index();
-    //page_table[memory_map_idx] = current_page_table[memory_map_idx].clone();
 
     new_table_frame
 }

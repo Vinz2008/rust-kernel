@@ -2,8 +2,6 @@ use bootloader::{bootinfo::{MemoryMap, MemoryRegionType}};
 use spin::Once;
 use x86_64::{PhysAddr, VirtAddr, align_up, registers::control::Cr3, structures::paging::{FrameAllocator, OffsetPageTable, PageSize, PageTable, PhysFrame, page_table::FrameError}};
 
-use crate::serial_println;
-
 
 pub static PHYSICAL_MEMORY_OFFSET : Once<VirtAddr> = Once::new();
 
@@ -14,6 +12,14 @@ pub unsafe fn active_level_4_table() -> &'static mut PageTable {
     let page_table_ptr: *mut PageTable = virt.as_mut_ptr();
 
     unsafe { &mut *page_table_ptr }
+}
+
+pub fn reload_cr3(){
+    let (active_p4, cr3_flags) = Cr3::read();
+
+    unsafe {
+        Cr3::write(active_p4, cr3_flags);
+    }
 }
 
 

@@ -105,7 +105,7 @@ fn allocate_kernel_stack(new_process_idx : usize, page_table_phys : PhysFrame) -
     let kernel_stack_end_page = Page::containing_address(virt_stack_end);
     let page_range = Page::range_inclusive(kernel_stack_start_page, kernel_stack_end_page);
     for page in page_range {
-        map_page_at_in(page_table_phys.start_address(), page.start_address(), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE).unwrap(); // TODO : should I realy unwrap ?
+        map_page_at_in(page_table_phys.start_address(), page.start_address(), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE).unwrap().flush(); // TODO : should I really unwrap ?
     }
     stack_end
 }
@@ -232,7 +232,7 @@ impl Process {
             
             let parent_pid = scheduler.current_process;
 
-            map_page_phys_at_in(page_table_phys.start_address(), PhysFrame::containing_address(PhysAddr::new(0xb8000)), VirtAddr::new(0xb8000), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE).unwrap(); // TODO : should I realy unwrap ?
+            map_page_phys_at_in(page_table_phys.start_address(), PhysFrame::containing_address(PhysAddr::new(0xb8000)), VirtAddr::new(0xb8000), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE).unwrap().flush(); // TODO : should I realy unwrap ?
             let new_process_pid = scheduler.add_process(Process { 
                 pid: Pid(NonZero::new(usize::MAX).unwrap()), // will be replaced in add_process
                 children: Vec::new(),

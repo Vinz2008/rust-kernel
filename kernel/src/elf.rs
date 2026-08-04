@@ -64,7 +64,8 @@ fn load_segment(content: &[u8], process : &Process, prog_header : &ProgramHeader
 
     for page in Page::range_inclusive(start_page, end_page){
         match map_page_at_in(process.page_table_phys.start_address(), page.start_address(), flags){
-            Ok(_) => {
+            Ok(flush) => {
+                flush.ignore();
                 let page_phys = unsafe {
                     translate_addr_in(process.page_table_phys, page.start_address())
                 }.ok_or(ElfError::TranslatePhysErr)?;
