@@ -4,7 +4,7 @@ use alloc::{collections::vec_deque::VecDeque, vec::Vec};
 use spin::Mutex;
 use x86_64::{instructions::interrupts::{self, without_interrupts}, registers::{control::{Cr3, Cr3Flags}, rflags::RFlags}};
 
-use crate::{gdt::set_tss_privilege_stack, process::{Pid, Process}, serial_println, syscall::SYSCALL_KERNEL_RSP, utils::Registers};
+use crate::{gdt::set_tss_privilege_stack, process::{Pid, Process, cleanup_process_mem_soft}, serial_println, syscall::SYSCALL_KERNEL_RSP, utils::Registers};
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum SchedulerState {
@@ -318,7 +318,10 @@ pub fn kill_current_and_schedule(exit_code : i32) -> ! {
         if current_pid == Process::INIT_PROCESS_PID {
             panic!("tried to exit init");
         }
+
         let current = current_pid.get_process_mut(&mut scheduler.processes);
+        cleanup_process_mem_soft(current);
+        
         current.state = SchedulerState::Zombie(exit_code);
         
         let parent_pid = current_pid.get_process(&scheduler.processes).parent;

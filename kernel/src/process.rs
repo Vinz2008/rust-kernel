@@ -5,7 +5,7 @@ use shared_consts::{Fd, USER_HEAP_SIZE, USER_HEAP_START};
 use spin::Mutex;
 use x86_64::{PhysAddr, VirtAddr, instructions::interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
-use crate::{allocator::{allocate_userspace_level_4_table, map_page_at_in, map_page_phys_at_in}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main, with_scheduler_no_int}, sse::{DEFAULT_FXSTATE, FxState}, userspace::USER_STACK_TOP, utils::Registers};
+use crate::{allocator::{allocate_userspace_level_4_table, deallocate_userspace_level_4_table, deallocate_virtual_page, map_page_at_in, map_page_phys_at_in}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main, with_scheduler_no_int}, serial_println, sse::{DEFAULT_FXSTATE, FxState}, userspace::USER_STACK_TOP, utils::Registers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pid(pub NonZero<usize>);
@@ -108,6 +108,92 @@ fn allocate_kernel_stack(new_process_idx : usize, page_table_phys : PhysFrame) -
         map_page_at_in(page_table_phys.start_address(), page.start_address(), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE).unwrap(); // TODO : should I realy unwrap ?
     }
     stack_end
+}
+
+fn current_rsp() -> VirtAddr {
+    let rsp: u64;
+
+    unsafe {
+        core::arch::asm!(
+            "mov {}, rsp",
+            out(reg) rsp,
+            options(nomem, nostack, preserves_flags),
+        );
+    }
+
+    VirtAddr::new(rsp)
+}
+
+fn deallocate_kernel_stack(stack_top : VirtAddr, page_table_frame : PhysFrame){
+    let stack_start = stack_top - KERNEL_PROC_STACK_SIZE;
+
+    let start_page =
+        Page::<Size4KiB>::from_start_address(stack_start)
+            .expect("stack start is not page aligned");
+
+    let end_page =
+        Page::<Size4KiB>::from_start_address(stack_top)
+            .expect("stack top is not page aligned");
+
+    let rsp = current_rsp();
+    let current_stack_page =
+        Page::<Size4KiB>::containing_address(rsp);
+
+    serial_println!(
+        "free stack {:#x}..{:#x}, rsp={:#x}, active page={:#x}",
+        stack_start.as_u64(),
+        stack_top.as_u64(),
+        rsp.as_u64(),
+        current_stack_page.start_address().as_u64(),
+    );
+
+    for page in Page::range(start_page, end_page) {
+        serial_println!(
+            "unmapping stack page {:#x}",
+            page.start_address().as_u64()
+        );
+
+        assert_ne!(
+            page,
+            current_stack_page,
+            "attempted to unmap page containing current RSP"
+        );
+
+        deallocate_virtual_page(page_table_frame, page);
+
+        serial_println!(
+            "unmapped stack page {:#x}",
+            page.start_address().as_u64()
+        );
+    }
+}
+
+fn deallocate_user_heap(heap_start : VirtAddr, heap_break : VirtAddr, page_table_frame : PhysFrame){
+    let start_page = Page::<Size4KiB>::containing_address(VirtAddr::new(heap_start.as_u64()));
+    let end_page = Page::<Size4KiB>::containing_address(VirtAddr::new(heap_break.as_u64()-1));
+    let page_range= Page::range_inclusive(start_page, end_page);
+    for page in page_range {
+        deallocate_virtual_page(page_table_frame, page);
+    }
+}
+
+// TODO : transform this in a Drop implementation of Process ?
+// only cleanup what can be immediately
+pub fn cleanup_process_mem_soft(process : &Process){
+    deallocate_user_heap(process.heap_start, process.heap_break, process.page_table_phys);
+    
+    // TODO
+}
+
+// TODO : call when cleaning up zombie processes
+pub fn cleanup_process_complete(process : &Process){
+    serial_println!("cleanup complete");
+    // TODO (URGENT) : before deallocating the kernel stack, need to not be on the stack (how to do it ? have a temporary stack ? or just do it after switching to the next stack ?)
+    serial_println!("before kernel stack cleanup");
+    // TODO : reenable this (for now it crashes)
+    //deallocate_kernel_stack(process.kernel_stack_top, process.page_table_phys);
+    deallocate_userspace_level_4_table(process.page_table_phys);
+    serial_println!("after PML4 cleanup");
 }
 
 impl Process {

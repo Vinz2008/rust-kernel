@@ -14,7 +14,7 @@ extern crate alloc;
 use bootloader::{BootInfo, entry_point};
 use x86_64::VirtAddr;
 
-use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall, process::Process, sse::init_fpu_template, utils::hlt_loop};
+use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall_and_int, process::Process, sse::init_fpu_template, utils::hlt_loop};
 
 
 mod tests;
@@ -81,7 +81,6 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     init_fpu_template();
 
-    enable_syscall();
 
     // TODO : remove pic initialization in the future (just disable it using the .lock().disable(), is small enough that I can just implement it without deps)
     unsafe { pic::PICS.lock().initialize() };
@@ -90,14 +89,15 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
 
     let mapper = unsafe { paging::init(phys_mem_offset) };
-    let frame_allocator = unsafe { paging::BootInfoFrameAllocator::init(&boot_info.memory_map) };
+    let boot_frame_allocator = unsafe { paging::BootInfoFrameAllocator::init(&boot_info.memory_map) };
 
-    allocator::init_heap(mapper, frame_allocator).expect("heap initialization failed");
+    allocator::init_heap(mapper, boot_frame_allocator).expect("heap initialization failed");
 
     let acpi_tables = init_acpi().unwrap();
     
     init_apic(acpi_tables).unwrap();
 
+    enable_syscall_and_int();
 
     Process::init_idle_process();
     

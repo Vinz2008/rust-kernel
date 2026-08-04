@@ -476,6 +476,8 @@ impl Inode {
     }
 }*/
 
+// TODO : find if some function can be passed &Arc<Inode> instead ?
+
 fn path_components(path : &str) -> impl Iterator<Item = &str> {
     path.split('/').filter(|part| !part.is_empty())
 }

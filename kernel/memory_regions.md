@@ -15,8 +15,8 @@
 
 # kernel memory (higher half)
 0xffff_8000_0000_0000 - 0xffff_9000_0000_0000 : kernel process stacks (16TiB)
-0xffff_9000_0000_0000 - 0xffff_9000_00a0_0000 : kernel heap (10 MiB)
-0xffff_9000_00a0_0000 - 0xffff_fe00_0000_0000 : empty
+0xffff_9000_0000_0000 - 0xffff_9000_0200_0000 : kernel heap (32 MiB)
+0xffff_9000_0200_0000 - 0xffff_fe00_0000_0000 : empty
 0xffff_fe00_0000_0000 - 0xffff_ff00_0000_0000 : physical-memory direct map (512GiB reserved)
 0xffff_ff00_0000_0000 - 0xffff_ffff_7fcf_f000 : empty
 0xffff_ffff_7fcf_f000 - 0xffff_ffff_7fd0_0000 : original kernel guard page (4KiB)

@@ -11,7 +11,7 @@ fn support_syscall(cpu_id : CpuId<CpuIdReaderNative>) -> bool {
     cpu_id.get_extended_processor_and_feature_identifiers().is_some_and(|f| f.has_syscall_sysret())
 }
 
-pub fn enable_syscall(){
+pub fn enable_syscall_and_int(){
     let user_code = GDT.1.user_code_selector;
     let user_data = GDT.1.user_data_selector;
     let kernel_code = GDT.1.kernel_code_selector;

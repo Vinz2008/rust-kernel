@@ -4,7 +4,7 @@ use alloc::{slice, str, vec::Vec};
 use shared_consts::{Arg, CREATE_FILE, DirChild, Fd, READABLE, SHUTDOWN_SUCCESS, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_PRINT, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_FSTAT, SYSCALL_READ, Stat, StatMode, WRITABLE};
 use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process}, qemu::{self, QemuExitCode}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, print, process::{Pid, Process, cleanup_process_complete, cleanup_process_mem_soft}, qemu::{self, QemuExitCode}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 
 // TODO : deprecate the interrupt side for syscalls (how ? should I ?)
@@ -336,33 +336,34 @@ fn syscall_wait_pid(regs : &mut SyscallRegs) -> Option<()> {
     let waited_pid = unsafe { Pid::new_unchecked(regs.get_arg(1) as usize) }?;
 
     serial_println!("waiting for pid {}", waited_pid.0.get());
-    
-    let control_flow = with_scheduler_no_int(|scheduler|{
-        let current_pid = scheduler.current_process.unwrap();
 
-        if !current_pid.get_process(&scheduler.processes).children.contains(&waited_pid) {
-            // not a children
-            return ControlFlow::Break(None);
+    loop {
+        let control_flow = with_scheduler_no_int(|scheduler|{
+            let current_pid = scheduler.current_process.unwrap();
+
+            if !current_pid.get_process(&scheduler.processes).children.contains(&waited_pid) {
+                // not a children
+                return ControlFlow::Break(None);
+            }
+
+            if let SchedulerState::Zombie(exit_code) = waited_pid.get_process(&scheduler.processes).state {
+                regs.rax = exit_code as u64;
+                waited_pid.get_process_mut(&mut scheduler.processes).state = SchedulerState::Dead;
+                current_pid.get_process_mut(&mut scheduler.processes).children.retain(|&pid| pid != waited_pid);
+                cleanup_process_complete(waited_pid.get_process(&scheduler.processes));
+                return ControlFlow::Break(Some(()));
+            }
+
+            current_pid.get_process_mut(&mut scheduler.processes).state = SchedulerState::WaitPid(waited_pid);
+            ControlFlow::Continue(())
+        });
+
+        if let ControlFlow::Break(res) = control_flow {
+            serial_println!("before return waitpid");
+            return res;
         }
-
-        if let SchedulerState::Zombie(exit_code) = waited_pid.get_process(&scheduler.processes).state {
-            regs.rax = exit_code as u64;
-            waited_pid.get_process_mut(&mut scheduler.processes).state = SchedulerState::Dead;
-            current_pid.get_process_mut(&mut scheduler.processes).children.retain(|&pid| pid != waited_pid); 
-            return ControlFlow::Break(Some(()));
-        }
-
-        current_pid.get_process_mut(&mut scheduler.processes).state = SchedulerState::WaitPid(waited_pid);
-        ControlFlow::Continue(())
-    });
-
-    if let ControlFlow::Break(res) = control_flow {
-        return res;
+        schedule(regs);
     }
-
-    schedule(regs);
-
-    Some(())
 }
 
 fn syscall_stat(regs : &mut SyscallRegs) -> Option<()>{

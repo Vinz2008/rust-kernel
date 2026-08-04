@@ -166,13 +166,13 @@ extern "x86-interrupt" fn page_fault_handler(stack_frame: InterruptStackFrame, e
 
     if let Some(mut writer_lock) = WRITER.try_lock(){
         let _ = writeln!(writer_lock, "EXCEPTION: PAGE FAULT");
-        let _ = writeln!(writer_lock, "Accessed Address: {:?}", accessed_addr);
+        let _ = writeln!(writer_lock, "Accessed Address: {:#x?}", accessed_addr);
         let _ = writeln!(writer_lock, "Error Code: {:?}", error_code);
         let _ = writeln!(writer_lock, "{:#?}", stack_frame);
     }
     if let Some(mut serial_lock) = SERIAL1.try_lock() {
         let backtrace = Backtrace::new();
-        let _ = writeln!(serial_lock, "backtrace page fault {}", backtrace);
+        let _ = writeln!(serial_lock, "backtrace page fault, accessed addr {:#x?}, backtrace : {}", accessed_addr, backtrace);
     }
     hlt_loop();
 }

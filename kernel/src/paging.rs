@@ -2,7 +2,7 @@ use bootloader::{bootinfo::{MemoryMap, MemoryRegionType}};
 use spin::Once;
 use x86_64::{PhysAddr, VirtAddr, align_up, registers::control::Cr3, structures::paging::{FrameAllocator, OffsetPageTable, PageSize, PageTable, PhysFrame, page_table::FrameError}};
 
-use crate::allocator::pml4_index;
+use crate::serial_println;
 
 
 pub static PHYSICAL_MEMORY_OFFSET : Once<VirtAddr> = Once::new();
@@ -56,9 +56,9 @@ pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static>
 // TODO huge pages (2 MiB)
 
 pub struct BootInfoFrameAllocator {
-    memory_map: &'static MemoryMap,
-    region_idx : usize,
-    next_addr: usize,
+    pub memory_map: &'static MemoryMap,
+    pub region_idx : usize,
+    pub next_addr: usize,
 }
 
 impl BootInfoFrameAllocator {
@@ -79,9 +79,10 @@ impl BootInfoFrameAllocator {
         frame_addresses.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
     }*/
 
-    pub fn get_memory_map_pml4_index(&self) -> usize {
+    // TODO : remove this
+    /*pub fn get_memory_map_pml4_index(&self) -> usize {
         pml4_index(self.memory_map as *const _ as u64)
-    }
+    }*/
 }
 
 
@@ -107,7 +108,7 @@ unsafe impl<S : PageSize> FrameAllocator<S> for BootInfoFrameAllocator {
             let region_end = region.range.end_addr();
             if frame_end <= region_end {
                 self.next_addr = frame_end as usize;
-                return PhysFrame::<S>::from_start_address(PhysAddr::new(self.next_addr as u64)).ok();
+                return PhysFrame::<S>::from_start_address(PhysAddr::new(candidate)).ok();
             }
             
             self.region_idx += 1;
