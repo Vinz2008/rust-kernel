@@ -256,7 +256,7 @@ pub fn get_page_flags_in(mapper : &mut OffsetPageTable<'_>, virt_addr: VirtAddr)
 }
 
 fn _map_page_phys_at_in(mem_manager_lock : &mut MemoryManager, page_table : PhysAddr, phys_frame : PhysFrame, virt_addr: VirtAddr, flags: PageTableFlags) -> Result<MapperFlush<Size4KiB>, MapToError<x86_64::structures::paging::Size4KiB>> {
-    let phys_offset = *PHYSICAL_MEMORY_OFFSET.get().unwrap();
+    let phys_offset = PHYSICAL_MEMORY_OFFSET;
     let page_table_virt = phys_offset + page_table.as_u64();
     let page_table_ptr: *mut PageTable = page_table_virt.as_mut_ptr();
     let page_table = unsafe { &mut *page_table_ptr };
@@ -286,7 +286,7 @@ pub fn pml4_index(addr: u64) -> usize {
 // TODO : better error handling ?
 // TODO : handle page of other size than 4KiB
 pub fn deallocate_virtual_page(page_table_frame : PhysFrame, page : Page){
-    let phys_offset = *PHYSICAL_MEMORY_OFFSET.get().unwrap();
+    let phys_offset = PHYSICAL_MEMORY_OFFSET;
     let page_table_virt = phys_offset + page_table_frame.start_address().as_u64();
     let page_table_ptr: *mut PageTable = page_table_virt.as_mut_ptr();
     let page_table = unsafe { &mut *page_table_ptr };
@@ -306,12 +306,11 @@ pub fn deallocate_virtual_page(page_table_frame : PhysFrame, page : Page){
 }
 
 pub fn allocate_userspace_level_4_table() -> PhysFrame {
-    let physical_memory_offset = *PHYSICAL_MEMORY_OFFSET.get().unwrap();
     
     let current_page_table = unsafe { active_level_4_table() };
     let new_table_frame = MEMORY_MANAGER.get().unwrap().lock().frame_allocator.allocate_frame().unwrap();
     let new_table_phys = new_table_frame.start_address();
-    let new_table_virt = physical_memory_offset + new_table_phys.as_u64();
+    let new_table_virt = PHYSICAL_MEMORY_OFFSET + new_table_phys.as_u64();
     let page_table_ptr: *mut PageTable = new_table_virt.as_mut_ptr();
 
     let page_table = unsafe { &mut *page_table_ptr };

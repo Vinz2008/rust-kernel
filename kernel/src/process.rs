@@ -333,7 +333,7 @@ impl Process {
         unsafe {
             *stack_ptr -= bytes.len() as u64;
             let phys_ptr = translate_addr_in(page_table, VirtAddr::new(*stack_ptr)).unwrap(); // TODO : replace unwrap with real error handling ?
-            let real_ptr_addr = PHYSICAL_MEMORY_OFFSET.get().unwrap().as_u64() + phys_ptr.as_u64();
+            let real_ptr_addr = PHYSICAL_MEMORY_OFFSET.as_u64() + phys_ptr.as_u64();
             let real_ptr = real_ptr_addr as *mut u8;
 
             ptr::copy_nonoverlapping(bytes.as_ptr(), real_ptr, bytes.len());

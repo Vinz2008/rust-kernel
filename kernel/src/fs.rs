@@ -130,7 +130,6 @@ pub fn canonicalize_path(path : &str, cwd : &str) -> Option<String> {
     Some(result)
 }
 
-// TODO : make the children be not owned to be able to duplicate them in the tree ? (do I really need that ?), also would help with ownership by letting easily copy a filenode
 // TODO : use trait instead, to abstract from where is the data (to replace the part with the content)
 
 static NEXT_INODE_ID : AtomicU64 = AtomicU64::new(0);
@@ -200,10 +199,6 @@ pub enum FileError {
     NotReadableFile,
     NotWritableFile,
 }
-
-//const EMPTY_CONTENT : &[u8] = &[];
-
-// TODO : have a fd to not have to resolve path for each file operation
 
 fn fix_error_with_path<T>(res : Result<T, FileError>, path : Box<str>) -> Result<T, FileError>{
     match res {

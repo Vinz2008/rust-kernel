@@ -195,7 +195,7 @@ fn check_ptr(ptr : usize, len : usize, is_write : bool) -> bool {
     let end_page = Page::<Size4KiB>::containing_address(VirtAddr::new((end-1) as u64));
 
     let page_table = unsafe { active_level_4_table() };
-    let phys_offset = *PHYSICAL_MEMORY_OFFSET.get().unwrap();
+    let phys_offset = PHYSICAL_MEMORY_OFFSET;
     let mut mapper = unsafe { OffsetPageTable::new(page_table, phys_offset) };
 
 

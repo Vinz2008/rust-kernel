@@ -227,7 +227,7 @@ fn _init_apic(acpi_tables : AcpiTables<MapHandler>) -> Result<(), AcpiError> {
 
     let lapic_physical_addr = frame.start_address();
 
-    let lapic_virtal_addr = *PHYSICAL_MEMORY_OFFSET.get().unwrap() + lapic_physical_addr.as_u64();
+    let lapic_virtal_addr = PHYSICAL_MEMORY_OFFSET + lapic_physical_addr.as_u64();
 
     LOCAL_APIC.call_once(|| Mutex::new(LocalApic(lapic_virtal_addr)));
 
@@ -254,7 +254,7 @@ fn _init_apic(acpi_tables : AcpiTables<MapHandler>) -> Result<(), AcpiError> {
 
     let io_apic_info = *apic.io_apics.first().ok_or(AcpiError::HostUnimplemented)?;
 
-    let io_apic_virt_addr = *PHYSICAL_MEMORY_OFFSET.get().unwrap() + io_apic_info.address as u64;
+    let io_apic_virt_addr = PHYSICAL_MEMORY_OFFSET + io_apic_info.address as u64;
 
     IO_APIC.call_once(|| Mutex::new(IoApic { base: io_apic_virt_addr, gsi_base: io_apic_info.global_system_interrupt_base }));
     

@@ -9,7 +9,7 @@ pub struct MapHandler;
 
 impl Handler for MapHandler {
     unsafe fn map_physical_region<T>(&self, physical_address: usize, size: usize) -> acpi::PhysicalMapping<Self, T> {
-        let phys_offset = PHYSICAL_MEMORY_OFFSET.get().unwrap().as_u64() as usize;
+        let phys_offset = PHYSICAL_MEMORY_OFFSET.as_u64() as usize;
         let virt_of_phys = phys_offset + physical_address;
         let virtual_start = NonNull::new(virt_of_phys as *mut T).unwrap();
 

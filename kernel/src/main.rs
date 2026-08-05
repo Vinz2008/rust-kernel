@@ -13,7 +13,6 @@
 extern crate alloc;
 
 use bootloader::{BootInfo, entry_point};
-use x86_64::VirtAddr;
 
 use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall_and_int, process::Process, sse::init_fpu_template, utils::hlt_loop};
 
@@ -85,9 +84,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     unsafe { pic::PICS.lock().initialize() };
 
     // TODO : should I really use the physical memory offset in the bootinfo ? why not just use the constant one in the kernel Cargo.toml, it would prevent to put PHYSICAL_MEMORY_OFFSET in a Once (remove atomic loads)
-    let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
+    //let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
 
-    let mapper = unsafe { paging::init(phys_mem_offset) };
+    let mapper = unsafe { paging::init() };
     let boot_frame_allocator = unsafe { paging::BootInfoFrameAllocator::init(&boot_info.memory_map) };
 
     allocator::init_heap(mapper, boot_frame_allocator).expect("heap initialization failed");

@@ -58,7 +58,7 @@ fn load_segment(content: &[u8], process : &Process, prog_header : &ProgramHeader
 
     let flags = elf_to_page_permission(elf_mem_flags);
     
-    let phys_offset = PHYSICAL_MEMORY_OFFSET.get().unwrap().as_u64();
+    let phys_offset = PHYSICAL_MEMORY_OFFSET.as_u64();
 
     const PAGE_SIZE : usize = Size4KiB::SIZE as usize; // TODO : change this when adding big pages
 
