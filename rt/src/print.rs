@@ -16,13 +16,13 @@ impl fmt::Write for Writer {
     }
 }
 
-pub fn _print(args: fmt::Arguments){
-    Writer.write_fmt(args).unwrap();
+pub fn _print(args: fmt::Arguments) -> fmt::Result {
+    Writer.write_fmt(args)
 }
 
 #[macro_export]
 macro_rules! print {
-    ($($arg:tt)*) => ($crate::print::_print(format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::print::_print(format_args!($($arg)*)).unwrap());
 }
 
 #[macro_export]

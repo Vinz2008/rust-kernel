@@ -86,17 +86,17 @@ impl OpenedFile {
     }
 }
 
-const KERNEL_PROC_STACK_BASE: u64 = 0xffff_8000_0000_0000;
+pub const KERNEL_PROC_STACK_BASE: u64 = 0xffff_8000_0000_0000;
 
-const KERNEL_PROC_STACK_SIZE: u64 = 32 * 1024; // 8 pages
+pub const KERNEL_PROC_STACK_SIZE: u64 = 32 * 1024; // 8 pages
 
-const KERNEL_PROC_STACK_GUARD_SIZE: u64 = 4096; // 1 page
+pub const KERNEL_PROC_STACK_GUARD_SIZE: u64 = 4096; // 1 page
 
-const SLOT_SIZE : u64 = KERNEL_PROC_STACK_GUARD_SIZE + KERNEL_PROC_STACK_SIZE;
+pub const KERNEL_PROC_STACK_SLOT_SIZE : u64 = KERNEL_PROC_STACK_GUARD_SIZE + KERNEL_PROC_STACK_SIZE;
 
 fn allocate_kernel_stack(new_process_idx : usize, page_table_phys : PhysFrame) -> u64 {
     // stack starts at the end
-    let stack_slot_start = KERNEL_PROC_STACK_BASE + new_process_idx as u64 * SLOT_SIZE;
+    let stack_slot_start = KERNEL_PROC_STACK_BASE + new_process_idx as u64 * KERNEL_PROC_STACK_SLOT_SIZE;
     let stack_start = stack_slot_start + KERNEL_PROC_STACK_GUARD_SIZE;
     let stack_end = stack_start + KERNEL_PROC_STACK_SIZE;
     let virt_stack_start = VirtAddr::new(stack_start);

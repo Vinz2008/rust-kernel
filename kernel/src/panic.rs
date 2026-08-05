@@ -2,12 +2,14 @@ use core::panic::PanicInfo;
 
 
 
-#[cfg(not(test))]
+//#[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     use crate::{utils::hlt_loop, vga::WRITER, serial::SERIAL1, backtrace::Backtrace};
     use core::fmt::Write;
     use x86_64::instructions::interrupts;
+
+    interrupts::disable();
     
     if let Some(mut writer_lock) = WRITER.try_lock(){
         writer_lock.clear_screen();
@@ -17,11 +19,8 @@ fn panic(info: &PanicInfo) -> ! {
     
     if let Some(mut serial_lock) = SERIAL1.try_lock() {
         let backtrace = Backtrace::new();
-        interrupts::without_interrupts(|| {
-            let _ = writeln!(serial_lock, "{}", info);
-            let _ = writeln!(serial_lock, "backtrace {}", backtrace);
-            //serial_lock.write_fmt(format_args!("backtrace {}", backtrace)).unwrap()
-        });
+        let _ = writeln!(serial_lock, "{}", info);
+        let _ = writeln!(serial_lock, "backtrace {}", backtrace);
     }
     hlt_loop()
 }

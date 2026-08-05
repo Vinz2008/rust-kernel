@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use rt::{self as _, Args, alloc::{string::String, vec}, print, println, shared_consts::BACKSPACE, syscall::{syscall_change_cwd, syscall_exec, syscall_get_char, syscall_get_cwd, syscall_print, syscall_stat, syscall_wait_pid}};
+use rt::{self as _, Args, alloc::{string::String, vec}, print, println, shared_consts::BACKSPACE, syscall::{syscall_change_cwd, syscall_exec, syscall_get_char, syscall_get_cwd, syscall_stat, syscall_wait_pid}};
 
 fn handle_cli(cli : &str){
     let mut cli_split = cli.split_whitespace(); // TODO : better parsing, for ex with quotess
@@ -61,7 +61,7 @@ fn handle_cli(cli : &str){
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main(_args : Args<'_>) -> i32 {
     let mut cli = String::new();
-    syscall_print("> ");
+    print!("> ");
 
     loop {
         let c = syscall_get_char();

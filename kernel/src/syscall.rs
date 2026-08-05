@@ -238,7 +238,7 @@ fn create_buf<'a, T>(buf_ptr : *mut T, buf_len : usize) -> Option<&'a mut [T]> {
 }
 
 fn create_buf_const<'a, T>(buf_ptr : *const T, buf_len : usize) -> Option<&'a [T]> {
-    if !check_ptr(buf_ptr as usize, buf_len * size_of::<T>(), true){
+    if !check_ptr(buf_ptr as usize, buf_len * size_of::<T>(), false){
         return None;
     }
     let slice = unsafe { slice::from_raw_parts(buf_ptr, buf_len) };
@@ -537,9 +537,37 @@ fn syscall_write(regs : &mut SyscallRegs) -> Option<u64> {
     let buf_size = regs.get_arg(3) as usize;
 
     let fd = Fd(fd as usize);
-    let buf = create_buf_const(buf, buf_size)?;
 
-    let written = process_write(fd, buf).ok()? as u64;
+    serial_println!(
+        "syscall_write entered: fd={}, ptr={:#x}, len={}",
+        fd.0,
+        buf as usize,
+        buf_size,
+    );
 
-    Some(written)
+    //let buf = create_buf_const(buf, buf_size)?;
+
+    let buf = match create_buf_const(buf, buf_size) {
+        Some(buf) => buf,
+        None => {
+            serial_println!("syscall_write: invalid userspace buffer");
+            return None;
+        }
+    };
+
+    //let written = process_write(fd, buf).ok()? as u64;
+
+    //Some(written)
+
+    match process_write(fd, buf) {
+        Ok(written) => {
+            serial_println!("syscall_write: wrote {} bytes", written);
+            Some(written as u64)
+        }
+
+        Err(error) => {
+            serial_println!("syscall_write failed: {:?}", error);
+            None
+        }
+    }
 }

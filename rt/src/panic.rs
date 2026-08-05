@@ -1,12 +1,12 @@
 
 use core::panic::PanicInfo;
 
-use crate::{println, syscall::syscall_exit};
+use crate::{print::_print, syscall::syscall_exit};
 
 
 // TODO : improve this
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    println!("{}", info);
+    let _ = _print(format_args!("panic : {}\n", info));
     syscall_exit(-1)
 }

@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use rt::{Args, println, shared_consts::READABLE, syscall::{syscall_open, syscall_print, syscall_read}};
+use rt::{Args, print, println, shared_consts::READABLE, syscall::{syscall_open, syscall_read}};
 
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main(args : Args<'_>) -> i32 {
@@ -24,7 +24,7 @@ pub extern "Rust" fn main(args : Args<'_>) -> i32 {
         }
         // TODO : for now can't print only a str, TODO : just have printing be writing to a files, which is just bytes
         let str = str::from_utf8(&buf[..count]).expect("can't print file");
-        syscall_print(str).expect("failed print");
+        print!("{}", str);
     }
     println!();
 
