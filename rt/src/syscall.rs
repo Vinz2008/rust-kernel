@@ -94,17 +94,6 @@ fn str_to_ptr_and_len(s : &str) -> (u64, u64) {
     (s.as_ptr() as u64, s.len() as u64)
 }
 
-/*pub fn syscall_print(message : &str) -> Option<()> {
-    let (message_ptr, message_len) = str_to_ptr_and_len(message);
-    unsafe {
-        let res = syscall2(SYSCALL_PRINT, message_ptr, message_len);
-        if res == u64::MAX {
-            return None;
-        }
-        Some(())
-    }
-}*/
-
 pub fn syscall_exec(path : &str, args : &[&str]) -> u64 {
     let (path_ptr, path_len) = str_to_ptr_and_len(path);
     let args_vec = args.iter().map(|arg| Arg { len: arg.len(), ptr: arg.as_ptr() }).collect::<Vec<_>>();

@@ -2,7 +2,7 @@ use core::panic::PanicInfo;
 
 
 
-//#[cfg(not(test))]
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     use crate::{utils::hlt_loop, vga::WRITER, serial::SERIAL1, backtrace::Backtrace};

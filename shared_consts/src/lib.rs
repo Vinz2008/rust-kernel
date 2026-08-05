@@ -2,21 +2,20 @@
 
 // TODO : replace this with an enum with numbers for each variant ?
 pub const SYSCALL_EXIT : u64 = 0;
-pub const SYSCALL_PRINT : u64 = 1;
-pub const SYSCALL_EXEC : u64 = 2;
-pub const SYSCALL_GET_CHAR : u64 = 3;
-pub const SYSCALL_WAIT_PID : u64 = 4;
-pub const SYSCALL_STAT : u64 = 5;
-pub const SYSCALL_OPEN : u64 = 6;
-pub const SYSCALL_CLOSE : u64 = 7;
-pub const SYSCALL_GET_CWD : u64 = 8;
-pub const SYSCALL_GET_DIR_CHILDREN : u64 = 9;
-pub const SYSCALL_SBRK : u64 = 10;
-pub const SYSCALL_SHUTDOWN : u64 = 11;
-pub const SYSCALL_CHANGE_CWD : u64 = 12;
-pub const SYSCALL_FSTAT : u64 = 13;
-pub const SYSCALL_READ : u64 = 14;
-pub const SYSCALL_WRITE : u64 = 15;
+pub const SYSCALL_EXEC : u64 = 1;
+pub const SYSCALL_GET_CHAR : u64 = 2;
+pub const SYSCALL_WAIT_PID : u64 = 3;
+pub const SYSCALL_STAT : u64 = 4;
+pub const SYSCALL_OPEN : u64 = 5;
+pub const SYSCALL_CLOSE : u64 = 6;
+pub const SYSCALL_GET_CWD : u64 = 7;
+pub const SYSCALL_GET_DIR_CHILDREN : u64 = 8;
+pub const SYSCALL_SBRK : u64 = 9;
+pub const SYSCALL_SHUTDOWN : u64 = 10;
+pub const SYSCALL_CHANGE_CWD : u64 = 11;
+pub const SYSCALL_FSTAT : u64 = 12;
+pub const SYSCALL_READ : u64 = 13;
+pub const SYSCALL_WRITE : u64 = 14;
 
 pub const BACKSPACE: char = '\u{0008}';
 pub const BACKSPACE_BYTE : u8 = b'\x08';

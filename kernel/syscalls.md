@@ -23,16 +23,10 @@ Returns:
 Description:
 Exits the current process with the code given.
 
-## print - syscall 1
-uint64_t print(const uint8_t* message_ptr, uint64_t message_len)
-Returns:  
-    0 if success  
-    0xFFFFFFFFFFFFFFFF if error  
-
 Description:
 Prints to the standard output of the terminal.
 
-## exec - syscall 2
+## exec - syscall 1
 
 uint64_t exec(const uint8_t* path_ptr, uint64_t path_len, const uint8_t args_ptr, uint64_t args_len)
 
@@ -43,7 +37,7 @@ Returns:
 Description:
 Creates a process, launch it and return the pid.
 
-## get_char - syscall 3
+## get_char - syscall 2
 
 uint64_t get_char()
 
@@ -53,38 +47,48 @@ Returns:
 Description:
 Returns the key pressed as a uint32_t unicode char casted to uint64_t
 
-## wait_pid - syscall 4
+## wait_pid - syscall 3
 
 TODO
 
-## stat - syscall 5
+## stat - syscall 4
 
 TODO
 
-## open - syscall 6
+## open - syscall 5
 
 TODO
 
-## close - syscall 7
+## close - syscall 6
 
 TODO
 
-## get_cwd - syscall 8
+## get_cwd - syscall 7
 
 TODO
 
-## get_dir_children - syscall 9
+## get_dir_children - syscall 8
 
 TODO
 
-## sbrk - syscall 10
+## sbrk - syscall 9
 
 TODO
 
-## shutdown - syscall 11
+## shutdown - syscall 10
 
 TODO
 
-## change_cwd - syscall 12
+## change_cwd - syscall 11
 
 TODO
+
+## fstat - syscall 12
+
+TODO
+
+## read - syscall 13
+
+TODO
+
+## write - syscall 14
