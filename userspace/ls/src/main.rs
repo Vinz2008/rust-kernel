@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use rt::{self as _, Args, print, println, shared_consts::{DIRENT_DIR, DirChild, Fd, READABLE}, syscall::{syscall_get_dir_children, syscall_open}};
+use rt::{self as _, Args, print, println, shared_consts::{DIRENT_DIR, DirChild, Fd, PATH_NAME_MAX, READABLE}, syscall::{syscall_get_dir_children, syscall_open}};
 
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main(args : Args<'_>) -> i32 {
@@ -15,7 +15,7 @@ pub extern "Rust" fn main(args : Args<'_>) -> i32 {
     let mut children = [DirChild {
         kind: 0,
         name_len: 0,
-        name: [0; rt::shared_consts::PATH_NAME_MAX],
+        name: [0; PATH_NAME_MAX],
     }; 16];
     loop {
         let n = syscall_get_dir_children(current_dir_fd, &mut children).unwrap();
