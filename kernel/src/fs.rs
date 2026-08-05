@@ -4,7 +4,7 @@ use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, string::String, sync
 use shared_consts::{DIRENT_DEVICE, DIRENT_DIR, DIRENT_FILE, DirChild, Fd, PATH_NAME_MAX, Stat, StatMode};
 use spin::mutex::Mutex;
 
-use crate::{device::DeviceOps, initrd::{INITRD_BYTES, TarInitrd}, process::OpenedFile, scheduler::with_scheduler_no_int, serial_println};
+use crate::{device::{DeviceOps, STDOUT}, initrd::{INITRD_BYTES, TarInitrd}, process::OpenedFile, scheduler::with_scheduler_no_int, serial_println};
 use lazy_static::lazy_static;
 
 // TODO : file permissions (first need users, maybe root/admin user ? search about it)
@@ -40,6 +40,10 @@ pub fn process_get_dir_children(fd : Fd, out : &mut [DirChild]) -> Result<usize,
         Ok(opened_dir)
     })?;
 
+    if !opened_dir.readable {
+        return Err(FileError::NotReadableFile);
+    }
+
     let mut offset_lock = opened_dir.offset.lock();
     let children_nb = opened_dir.inode.read_dir_children(*offset_lock, out)?;
     *offset_lock += children_nb;
@@ -64,10 +68,29 @@ pub fn process_read(fd : Fd, buf : &mut [u8]) -> Result<usize, FileError> {
         let opened_file = current_proc.fd_list.get(fd.0).ok_or(FileError::FdNotFound)?.as_ref().cloned().ok_or(FileError::FdNotFound)?;
         Ok(opened_file)
     })?;
+    if !opened_file.readable {
+        return Err(FileError::NotReadableFile);
+    }
     let mut offset_lock = opened_file.offset.lock();
     let read = opened_file.inode.read_at(*offset_lock, buf)?;
     *offset_lock += read;
     Ok(read)
+}
+
+pub fn process_write(fd : Fd, buf : &[u8]) -> Result<usize, FileError> {
+    let opened_file = with_scheduler_no_int(|scheduler|{
+        let current_pid = scheduler.current_process.unwrap();
+        let current_proc = current_pid.get_process(&scheduler.processes);
+        let opened_file = current_proc.fd_list.get(fd.0).ok_or(FileError::FdNotFound)?.as_ref().cloned().ok_or(FileError::FdNotFound)?;
+        Ok(opened_file)
+    })?;
+    if !opened_file.writable {
+        return Err(FileError::NotWritableFile);
+    }
+    let mut offset_lock = opened_file.offset.lock();
+    let written = opened_file.inode.write_at(*offset_lock, buf)?;
+    *offset_lock += written;
+    Ok(written)
 }
 
 // TODO : if it uses a lot perf, use cow instead ?
@@ -174,7 +197,8 @@ pub enum FileError {
         path: Box<str>,
     },
     FdNotFound,
-    NotWritableFIle,
+    NotReadableFile,
+    NotWritableFile,
 }
 
 //const EMPTY_CONTENT : &[u8] = &[];
@@ -309,7 +333,7 @@ impl Inode {
         match &self.kind {
             InodeKind::File { data } => match data {
                 FileData::Initrd(_) => {
-                    Err(FileError::NotWritableFIle)
+                    Err(FileError::NotWritableFile)
                 },
                 FileData::Memory(data) => {
                     let mut data_lock = data.lock();
@@ -464,6 +488,7 @@ pub fn add_inode(path : &str, inode : Arc<Inode>) -> Result<(), FileError> {
     add_inode_to_vfs_tree(ROOT_NODE.clone(), path, inode, false)
 }
 
+// TODO : better error handling ? (need to use once for the root node ?)
 fn fs_create_root_node(tar_initrd : TarInitrd<'static>) -> Arc<Inode> {
     let root_node = Inode::new_dir();
     for (idx, &file) in tar_initrd.headers.iter().enumerate() {
@@ -483,11 +508,11 @@ fn fs_create_root_node(tar_initrd : TarInitrd<'static>) -> Arc<Inode> {
                 typeflag => panic!("unsupported tag in initrd : {:?}", typeflag),
             };
             add_inode_to_vfs_tree(root_node.clone(), path, inode, true).unwrap(); // TODO : better error handling ?
-            
         }
     }
 
     add_inode_to_vfs_tree(root_node.clone(), "/dev", Inode::new_dir(), false).unwrap();
+    add_inode_to_vfs_tree(root_node.clone(), "/dev/stdout", Inode::new_device(&*STDOUT), false).unwrap();
     
     root_node
 }

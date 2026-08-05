@@ -1,12 +1,14 @@
 use core::fmt::{self, Write};
 
-use crate::syscall::syscall_print;
+use shared_consts::STDOUT_FD;
+
+use crate::syscall::{syscall_write};
 
 struct Writer;
 
 impl fmt::Write for Writer {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        let res = syscall_print(s);
+        let res = syscall_write(STDOUT_FD, s.as_bytes());
         if res.is_none() {
             return Err(fmt::Error);
         }

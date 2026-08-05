@@ -1,6 +1,6 @@
 use core::{num::NonZero, ptr};
 
-use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 use shared_consts::{Fd, USER_HEAP_SIZE, USER_HEAP_START};
 use spin::Mutex;
 use x86_64::{PhysAddr, VirtAddr, instructions::interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
@@ -57,8 +57,8 @@ pub struct Process {
 pub struct OpenedFile {
     pub inode : Arc<Inode>,
     pub offset : Mutex<usize>,
-    readable : bool,
-    writable : bool,
+    pub readable : bool,
+    pub writable : bool,
 }
 
 impl OpenedFile {
@@ -185,6 +185,14 @@ pub fn cleanup_process_mem_soft(process : &Process){
     // TODO
 }
 
+fn init_fd_list() -> Result<Vec<Option<Arc<OpenedFile>>>, FileError> {
+    let mut v = Vec::with_capacity(1);
+
+    // TODO : should I cache the inode instead of searching the path ? could make it more performant, + would prevent a security risk in the future by changing the root mount ?
+    v.push(Some(OpenedFile::new("/dev/stdout", false, true, false)?));
+    Ok(v)
+}
+
 // TODO : call when cleaning up zombie processes
 pub fn cleanup_process_complete(process : &Process){
     serial_println!("cleanup complete");
@@ -245,7 +253,7 @@ impl Process {
                 kernel_context: KernelContext::default(),
                 fxstate: DEFAULT_FXSTATE.get().unwrap().clone(),
                 cwd_path,
-                fd_list: Vec::new(),
+                fd_list: init_fd_list().unwrap(), // TODO : better error handling (either cache the stdout to not have to search it, or return a result from this fun)
                 free_fd_nb: 0,
                 heap_start: VirtAddr::new(USER_HEAP_START as u64),
                 heap_break: VirtAddr::new(USER_HEAP_START as u64),

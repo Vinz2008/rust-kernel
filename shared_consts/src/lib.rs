@@ -16,6 +16,7 @@ pub const SYSCALL_SHUTDOWN : u64 = 11;
 pub const SYSCALL_CHANGE_CWD : u64 = 12;
 pub const SYSCALL_FSTAT : u64 = 13;
 pub const SYSCALL_READ : u64 = 14;
+pub const SYSCALL_WRITE : u64 = 15;
 
 pub const BACKSPACE: char = '\u{0008}';
 pub const BACKSPACE_BYTE : u8 = b'\x08';
@@ -44,7 +45,7 @@ pub struct Fd(pub usize);
 
 pub const DIRENT_FILE : u8 = 1;
 pub const DIRENT_DIR : u8 = 2;
-pub const DIRENT_DEVICE : u8 = 2;
+pub const DIRENT_DEVICE : u8 = 3;
 
 // TOO : make this variable length like linux_dirent in linux
 #[repr(C)]
@@ -70,3 +71,5 @@ pub struct Arg {
     pub len : usize,
     pub ptr : *const u8,
 }
+
+pub const STDOUT_FD : Fd = Fd(0);

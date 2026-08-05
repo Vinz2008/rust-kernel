@@ -191,6 +191,12 @@ impl Writer {
         
     }
 
+    pub fn write_bytes(&mut self, bytes : &[u8]){
+        for &byte in bytes {
+            self.write_ansi_byte(byte);
+        }
+    }
+
     pub fn write_string(&mut self, s: &str) {
 
         for byte in s.bytes() {
