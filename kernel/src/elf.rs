@@ -49,6 +49,8 @@ fn load_segment(content: &[u8], process : &Process, prog_header : &ProgramHeader
         return Ok(());
     }
 
+    // TODO : validate the offset (to only load in valid parts)
+
     let start = VirtAddr::new(virt_addr);
     let end = VirtAddr::new(virt_addr + memory_size as u64 - 1);
 

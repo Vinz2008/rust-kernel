@@ -68,6 +68,10 @@ entry_point!(kernel_main);
 
 // TODO : port doom (need to implement framebuffer)
 
+// TODO : for security reasons, make the kernel a PIE ? (and the userspace programs ?)
+
+// TODO : enable stack smashing protection on the kernel (and for userspace exes ?)
+
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     #[cfg(test)]
