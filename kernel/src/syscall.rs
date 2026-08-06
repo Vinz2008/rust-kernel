@@ -404,7 +404,7 @@ fn syscall_get_cwd(regs : &mut SyscallRegs) -> Option<u64> {
         serial_println!("cwd in syscall  : {}", cwd);
         serial_println!("cwd.len() > cwd_len : {} > {}", cwd.len(), cwd_len);
         if cwd.len() > cwd_len {
-            return None
+            return None;
         }
         cwd_buf[..cwd.len()].copy_from_slice(cwd.as_bytes());
         Some(cwd.len() as u64)

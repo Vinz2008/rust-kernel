@@ -156,22 +156,23 @@ pub fn syscall_close(fd : Fd) -> Option<()> {
     }
 }
 
+// TODO : after adding real errors returns to syscall, make it possible to return that there is not enough size, and the size needed, to retry with the right size ?
 pub fn syscall_get_cwd() -> Option<ArrayString<PATH_MAX>> {
-    let mut ret = ArrayString::new();
-    let ret_ptr = ret.as_ptr() as u64;
-    let ret_len = ret.capacity() as u64;
+    let mut buffer = [0u8; PATH_MAX];
+    let ret_ptr = buffer.as_mut_ptr() as u64;
+    let ret_len = buffer.len() as u64;
     let ret_syscall = unsafe {
         syscall2(SYSCALL_GET_CWD, ret_ptr, ret_len)
     };
-    match ret_syscall {
-        u64::MAX => None,
-        len => {
-            unsafe {
-                ret.set_len(len as usize);
-            }
-            Some(ret)
-        },
+    let len = match ret_syscall {
+        u64::MAX => return None,
+        len => len as usize,
+    };
+    if len > buffer.len() {
+        return None;
     }
+    let ret = str::from_utf8(&buffer[..len]).ok()?;
+    ArrayString::from(ret).ok()
 }
 
 pub fn syscall_get_dir_children(fd : Fd, children : &mut [DirChild]) -> Option<usize> {
