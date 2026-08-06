@@ -14,7 +14,7 @@ extern crate alloc;
 
 use bootloader::{BootInfo, entry_point};
 
-use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall_and_int, process::Process, rtc::{BOOT_TIME, init_rtc}, sse::init_fpu_template, utils::hlt_loop};
+use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall_and_int, process::Process, rtc::{BOOT_TIME, init_rtc}, security::enable_security_features, sse::init_fpu_template, utils::hlt_loop};
 
 
 mod tests;
@@ -63,6 +63,8 @@ mod initrd;
 
 mod ringbuf;
 
+mod security;
+
 entry_point!(kernel_main);
 
 
@@ -71,6 +73,8 @@ entry_point!(kernel_main);
 // TODO : for security reasons, make the kernel a PIE ? (and the userspace programs ?)
 
 // TODO : enable stack smashing protection on the kernel (and for userspace exes ?)
+
+// TODO : add limits for processes (of memory use, etc) that can be set when doing exec (need a exec config struct)
 
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
@@ -88,6 +92,8 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     // TODO : remove pic initialization in the future (just disable it using the .lock().disable(), is small enough that I can just implement it without deps)
     unsafe { pic::PICS.lock().initialize() };
+
+    enable_security_features();
 
     let mapper = unsafe { paging::init() };
     let boot_frame_allocator = unsafe { paging::BootInfoFrameAllocator::init(&boot_info.memory_map) };

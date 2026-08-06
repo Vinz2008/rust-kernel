@@ -65,6 +65,8 @@ pub static mut SYSCALL_USER_RSP: u64 = 0;
 #[unsafe(no_mangle)]
 pub static mut SYSCALL_KERNEL_RSP: u64 = 0;
 
+// if return address is "canonical" (what does it mean ?) use sysret instead of iretq, because it is a lot faster (see https://kernel-internals.org/arch/x86/syscall-entry/ and https://kernel-internals.org/arch/x86/war-stories/)
+
 #[unsafe(naked)]
 pub unsafe extern "C" fn syscall_instr_entry(){
     naked_asm!(
