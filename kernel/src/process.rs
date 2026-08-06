@@ -52,7 +52,7 @@ pub struct Process {
     pub heap_max : VirtAddr,
 }
 
-// TODO : add in the first file desciptors stdout, stdin and stderr
+// TODO : add in the first file descriptors stdin and stderr
 
 pub struct OpenedFile {
     pub inode : Arc<Inode>,
@@ -177,7 +177,6 @@ fn deallocate_user_heap(heap_start : VirtAddr, heap_break : VirtAddr, page_table
     }
 }
 
-// TODO : transform this in a Drop implementation of Process ?
 // only cleanup what can be immediately
 pub fn cleanup_process_mem_soft(process : &Process){
     deallocate_user_heap(process.heap_start, process.heap_break, process.page_table_phys);

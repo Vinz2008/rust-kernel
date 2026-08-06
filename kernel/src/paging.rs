@@ -56,7 +56,6 @@ pub unsafe fn init() -> OffsetPageTable<'static> {
     }
 }
 
-// TODO : only use it the current page strategy to allocate the bitmap for better frame allocation which support frame deallocation
 // TODO huge pages (2 MiB)
 
 pub struct BootInfoFrameAllocator {

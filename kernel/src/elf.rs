@@ -1,12 +1,10 @@
 use core::{cmp::min, ptr};
 
-use elf::{ElfBytes, ParseError, endian::AnyEndian, segment::ProgramHeader};
+use elf::{ElfBytes, ParseError, abi::PF_X, endian::AnyEndian, segment::ProgramHeader};
 use x86_64::{VirtAddr, structures::paging::{Page, PageSize, PageTableFlags, Size4KiB, mapper::MapToError}};
 
 use crate::{allocator::map_page_at_in, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, process::Process, serial_println, userspace::map_userspace_stack};
 
-
-// TODO : need as some point to enable the nx feature in the kernel main to have the no execute permission have an effect
 
 #[derive(Debug)]
 pub enum ElfError {
@@ -17,6 +15,7 @@ pub enum ElfError {
     SegmentTableNotFound,
     TranslatePhysErr,
     InvalidElf,
+    ExecutableStackUnsupported,
 }
 
 impl From<ParseError> for ElfError {
@@ -105,8 +104,6 @@ fn load_segment(content: &[u8], process : &Process, prog_header : &ProgramHeader
     Ok(())
 }
 
-// TODO : special permissions for each pages (ex, const data and code is read only, data is no exe)
-
 pub fn load_elf<'a>(content : &'a [u8], process : &Process) -> Result<ElfBytes<'a, AnyEndian>, ElfError> {
     let file = ElfBytes::<AnyEndian>::minimal_parse(content)?;
 
@@ -125,14 +122,15 @@ pub fn load_elf<'a>(content : &'a [u8], process : &Process) -> Result<ElfBytes<'
     //let text_section_content = file.section_data(&text_section_header).unwrap().0;
     //serial_println!("text section content : {:?}", text_section_content);
 
-    let mut stack_flags = elf::abi::PF_R | elf::abi::PF_W;
-
     for prog_header in file.segments().ok_or(ElfError::SegmentTableNotFound)? {
         serial_println!("type={} offset={:#x} vaddr={:#x} filesz={:#x} memsz={:#x} flags={:#x}", prog_header.p_type, prog_header.p_offset, prog_header.p_vaddr, prog_header.p_filesz, prog_header.p_memsz, prog_header.p_flags);
         match prog_header.p_type {
             elf::abi::PT_LOAD => load_segment(content, process, &prog_header)?,
+            // TODO : support PT_TLS for thread local storage (use also fs/gs for it)
             elf::abi::PT_GNU_STACK => {
-                stack_flags = prog_header.p_flags;
+                if (prog_header.p_flags & PF_X) != 0 {
+                    return Err(ElfError::ExecutableStackUnsupported);
+                }
             }
             // TODO : really support PT_GNU_RELRO, which says which segment should become read only after writing its content 
             elf::abi::PT_GNU_RELRO | elf::abi::PT_PHDR  => {},
@@ -140,6 +138,8 @@ pub fn load_elf<'a>(content : &'a [u8], process : &Process) -> Result<ElfBytes<'
             p_type => serial_println!("unknown p_type : {}", p_type), // TODO : reject unsupported sections
         }
     }
+
+    let stack_flags = elf::abi::PF_R | elf::abi::PF_W;
 
     map_userspace_stack(process, stack_flags);
 
