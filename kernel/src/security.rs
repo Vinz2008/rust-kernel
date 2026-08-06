@@ -23,8 +23,9 @@ fn enable_umip(flags : &mut Cr4Flags, features : Option<&ExtendedFeatures>){
     serial_println!("enable UMIP");
 }
 
-// TODO : enable LASS ? (need to change 0xb8000 usage)
+
 // TODO : should I enable smap ? but would prevent easy code in syscall to access page user accessible, would need to copy in kernel memory buffers or have temp buffers for write and using the stac and clac to enable this copy between userspace/kernel, is the tradeoff worth it ?
+// TODO : enable LASS ? (need to change 0xb8000 usage and enable the same stac and clac for smap)
 // TODO : should I enable CET ?
 
 
