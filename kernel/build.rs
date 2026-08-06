@@ -100,12 +100,11 @@ fn add_exe_to_initrd(target_dir : &Path, profile : &str, exe : &str){
     println!("cargo:rerun-if-changed={}", bin.display());
 
     dbg!(bin.display());
-    let to_path = format!("../initrd/{exe}");
+    let to_path = format!("../initrd/bin/{exe}");
     fs::copy(&bin, to_path).expect("failed to copy executable");
 }
 
 const USERSPACE_EXES : &[&str] = &[
-    "init",
     "cli",
     "ls",
     "shutdown",
@@ -121,6 +120,13 @@ fn main() {
     let profile = env::var("PROFILE").unwrap();
 
     let target_dir = find_target_dir();
+
+    fs::create_dir_all("../initrd/bin").unwrap(); // create_dir_all to not fail if it exists
+
+    let init_bin = PathBuf::from_iter([ target_dir.as_path(), "x86_64-unknown-rust_kernel".as_ref(), profile.as_str().as_ref(), "init".as_ref() ]);
+    println!("cargo:rerun-if-changed={}", init_bin.display());
+    let init_to_path = format!("../initrd/init");
+    fs::copy(&init_bin, init_to_path).expect("failed to copy init executable");
 
     for &exe in USERSPACE_EXES {
         add_exe_to_initrd(&target_dir, &profile, exe);

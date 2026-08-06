@@ -42,13 +42,13 @@ fn handle_cli(cli : &str){
         }
         cmd_name => {
             let mut path = String::new();
-            path.push('/');
+            path.push_str("/bin/");
             path.push_str(cmd_name);
             match syscall_stat(&path){
                 Some(_) => {
                     let mut argv = vec![path.as_str()];
                     argv.extend(cli_split);
-                    let pid = syscall_exec(&path, &argv);
+                    let pid = syscall_exec(&path, &argv).unwrap();
                     syscall_wait_pid(pid);
                 },
                 None => println!("unknown command : {}", cli),

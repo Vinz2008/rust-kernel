@@ -1,8 +1,8 @@
 /target
 initrd.tar
 initrd/init
-initrd/cli
-initrd/ls
-initrd/shutdown
-initrd/touch
-initrd/cat
+initrd/bin/cli
+initrd/bin/ls
+initrd/bin/shutdown
+initrd/bin/touch
+initrd/bin/cat

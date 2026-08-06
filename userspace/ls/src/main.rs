@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use rt::{self as _, Args, fs::File, print, println, shared_consts::{DIRENT_DIR, DirChild, Fd, PATH_NAME_MAX, READABLE}, syscall::{syscall_get_dir_children}};
+use rt::{self as _, Args, fs::File, print, println, shared_consts::{DIRENT_DIR, DirChild, PATH_NAME_MAX, READABLE}, syscall::{syscall_get_dir_children}};
 
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main(args : Args<'_>) -> i32 {

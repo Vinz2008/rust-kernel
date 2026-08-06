@@ -1,4 +1,4 @@
-use core::fmt::{self, Write};
+use core::fmt;
 
 use alloc::vec::Vec;
 use shared_consts::{CREATE_FILE, Fd, StatMode};

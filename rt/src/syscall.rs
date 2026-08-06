@@ -94,13 +94,17 @@ fn str_to_ptr_and_len(s : &str) -> (u64, u64) {
     (s.as_ptr() as u64, s.len() as u64)
 }
 
-pub fn syscall_exec(path : &str, args : &[&str]) -> u64 {
+pub fn syscall_exec(path : &str, args : &[&str]) -> Option<u64> {
     let (path_ptr, path_len) = str_to_ptr_and_len(path);
     let args_vec = args.iter().map(|arg| Arg { len: arg.len(), ptr: arg.as_ptr() }).collect::<Vec<_>>();
     let args_ptr = args_vec.as_ptr() as u64;
     let args_len = args.len() as u64;
-    unsafe {
+    let ret = unsafe {
         syscall4(SYSCALL_EXEC, path_ptr, path_len, args_ptr, args_len)
+    };
+    match ret {
+        u64::MAX => None,
+        _ => Some(ret),
     }
 }
 
