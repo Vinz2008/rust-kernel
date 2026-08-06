@@ -14,7 +14,7 @@ extern crate alloc;
 
 use bootloader::{BootInfo, entry_point};
 
-use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall_and_int, process::Process, sse::init_fpu_template, utils::hlt_loop};
+use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall_and_int, process::Process, rtc::{BOOT_TIME, init_rtc}, sse::init_fpu_template, utils::hlt_loop};
 
 
 mod tests;
@@ -36,6 +36,8 @@ mod interrupts;
 mod pic;
 
 mod gdt;
+
+mod rtc;
 
 mod sse;
 
@@ -92,7 +94,11 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     allocator::init_heap(mapper, boot_frame_allocator).expect("heap initialization failed");
 
     let acpi_tables = init_acpi().unwrap();
-    
+
+    init_rtc();
+
+    serial_println!("boot time : {}", BOOT_TIME.get().unwrap());
+
     init_apic(acpi_tables).unwrap();
 
     enable_syscall_and_int();
