@@ -38,6 +38,7 @@ pub const READABLE : u64 = 0x1;
 pub const WRITABLE : u64 = 0x2;
 pub const CREATE_FILE : u64 = 0x4;
 
+// TODO : add generations to fd (but only on kernel side ? or also on userspace size ?)
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct Fd(pub usize);

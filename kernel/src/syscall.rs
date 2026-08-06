@@ -506,6 +506,8 @@ fn syscall_fstat(regs : &mut SyscallRegs) -> Option<()>{
     Some(())
 }
 
+// TODO : make the fs async first (and then add synchronous wrappers in userspace)
+
 fn syscall_read(regs : &mut SyscallRegs) -> Option<u64> {
     let fd = regs.get_arg(1);
     let buf = regs.get_arg(2) as *mut u8;

@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use rt::{Args, println, shared_consts::{CREATE_FILE, READABLE}, syscall::syscall_open};
+use rt::{Args, fs::File, println, shared_consts::{READABLE}};
 
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main(args : Args<'_>) -> i32 {
@@ -12,6 +12,6 @@ pub extern "Rust" fn main(args : Args<'_>) -> i32 {
             return -1;
         }
     };
-    let _ = syscall_open(file_path, READABLE | CREATE_FILE).expect("error when creating file");
+    let _ = File::create(file_path, READABLE).expect("error when creating file");
     0
 }

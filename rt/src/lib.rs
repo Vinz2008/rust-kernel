@@ -1,6 +1,9 @@
 #![no_std]
 
+#![allow(internal_features)]
+
 #![feature(naked_functions_rustic_abi)]
+#![feature(fmt_internals)]
 
 pub extern crate alloc;
 

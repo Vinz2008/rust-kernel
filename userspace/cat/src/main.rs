@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use rt::{Args, print, println, shared_consts::READABLE, syscall::{syscall_open, syscall_read}};
+use rt::{Args, fs::File, print, println, shared_consts::READABLE, syscall::{syscall_read}};
 
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main(args : Args<'_>) -> i32 {
@@ -13,12 +13,12 @@ pub extern "Rust" fn main(args : Args<'_>) -> i32 {
         }
     };
 
-    let fd = syscall_open(file_path, READABLE).expect("file not found");
+    let file = File::open(file_path, READABLE).expect("file not found");
 
     let mut buf = [0 as u8; 4096];
 
     loop {
-        let count = syscall_read(fd, &mut buf).expect("error in read");
+        let count = syscall_read(unsafe { file.get_fd() }, &mut buf).expect("error in read");
         if count == 0 {
             break;
         }
