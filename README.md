@@ -2,4 +2,4 @@
 
 ## Advantages
 
-- Security (executable stacks not supported, NXE bit enabled, )
+- Security (executable stacks not supported, NXE bit enabled, SMEP, UMIP)

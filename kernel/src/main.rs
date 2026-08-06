@@ -76,6 +76,8 @@ entry_point!(kernel_main);
 
 // TODO : add limits for processes (of memory use, etc) that can be set when doing exec (need a exec config struct)
 
+// TODO : maybe in a very far future, support FRED (new technology to replace interrupts, syscalls, etc, faster, and because simpler is a little more secure) but disadvantage is as 2026, the cpus supporting have only been released a couple of months ago, and only intel cpus supports it for now
+
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     #[cfg(test)]

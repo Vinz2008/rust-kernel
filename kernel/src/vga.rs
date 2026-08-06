@@ -334,7 +334,7 @@ lazy_static! {
             column_pos: 0,
             row_pos: 0,
             color_code: ColorCode::new(Color::Yellow, Color::Black),
-            buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
+            buffer: unsafe { &mut *(0xb8000 as *mut Buffer) }, // TODO : use the physical offset to access it, to be possible to enable LASS, also unmap it from virtual mem
             ansi_state:AnsiState::Normal,
             csi_buf: [0; 16],
             csi_len: 0,
