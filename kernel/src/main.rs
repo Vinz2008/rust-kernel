@@ -68,11 +68,27 @@ mod security;
 entry_point!(kernel_main);
 
 
-// TODO : port doom (need to implement framebuffer)
-
-// TODO : for security reasons, make the kernel a PIE ? (and the userspace programs ?)
-
 // TODO : enable stack smashing protection on the kernel (and for userspace exes ?)
+
+// TODO : for security reasons, make the kernel a PIE ? (and the userspace programs ?) and enable KASLR ? (also ALSR for userspace programs ?)
+
+// TODO : compile the kernel with BIND_NOW (does the bootloader support it ?)
+
+// TODO : add brk ASLR ?
+
+// TODO : add libs/mmap ASLR
+
+// TODO : stack ASLR ?
+
+// TODO : use pointer encryption/obfuscation for most secure cases : https://udrepper.livejournal.com/13393.html
+
+// TODO : harden memory allocators (poison, etc)
+
+// TODO : TPM support for securing keys (other solutions ?)
+
+// TODO : after adding mmap, have a minimum address for it (for ex 32K or 64K) to prevent NULL pointer attacks
+
+// TODO : port doom (need to implement framebuffer)
 
 // TODO : add limits for processes (of memory use, of syscalls, of filesystem access (kind of like chroot ?), etc) that can be set when doing exec (need a exec config struct)
 
