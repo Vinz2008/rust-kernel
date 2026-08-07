@@ -1,6 +1,6 @@
 use core::{num::NonZero, ptr};
 
-use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use shared_consts::{Fd, USER_HEAP_SIZE, USER_HEAP_START};
 use spin::Mutex;
 use x86_64::{PhysAddr, VirtAddr, instructions::interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
@@ -18,11 +18,11 @@ impl Pid {
         }
     }
 
-    pub fn get_process(self, processes : &[Process]) -> &Process {
+    pub fn get_process(self, processes : &[Box<Process>]) -> &Process {
         processes.get(self.0.get()-1).unwrap()
     }
     
-    pub fn get_process_mut(self, processes : &mut [Process]) -> &mut Process {
+    pub fn get_process_mut(self, processes : &mut [Box<Process>]) -> &mut Process {
         processes.get_mut(self.0.get()-1).unwrap()
     }
 }
@@ -307,7 +307,7 @@ impl Process {
             ..Default::default()
         };
 
-        scheduler_lock.processes.push(Process { 
+        scheduler_lock.processes.push(Box::new(Process { 
             pid: new_process_pid, 
             children: Vec::new(),
             parent: None,
@@ -324,7 +324,7 @@ impl Process {
             heap_start: VirtAddr::new(0),
             heap_break: VirtAddr::new(0),
             heap_max: VirtAddr::new(0),
-        });
+        }));
         
     }
 

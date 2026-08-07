@@ -4,7 +4,7 @@ use pc_keyboard::{DecodedKey, HandleControl, KeyCode, KeyState, PS2Keyboard, Sca
 use spin::Mutex;
 use x86_64::{PrivilegeLevel, VirtAddr, instructions::port::Port, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
-use crate::{apic::{HAS_ENABLED_APIC, LOCAL_APIC}, backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, process::Pid, ringbuf::RingBuf, scheduler::{SCHEDULER, kill_current_and_schedule, schedule}, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
+use crate::{apic::{HAS_ENABLED_APIC, LOCAL_APIC}, backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, process::Pid, ringbuf::RingBuf, scheduler::{SCHEDULER, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -64,10 +64,6 @@ extern "x86-interrupt" fn breakpoint_handler(stack_frame: InterruptStackFrame)
 extern "x86-interrupt" fn double_fault_handler(stack_frame: InterruptStackFrame, _error_code: u64) -> !
 {
     panic!("EXCEPTION: DOUBLE FAULT\n{:#?}", stack_frame);
-}
-
-fn is_from_userspace(cs : u64) -> bool {
-    (cs & 0b11) == 3
 }
 
 enum ErrorCause {
@@ -228,10 +224,22 @@ pub unsafe extern "C" fn timer_interrupt_stub() -> ! {
 static TICKS: AtomicU64 = AtomicU64::new(0);
 const TICKS_EACH_SCHEDULE: u64 = 10; // TODO : change this after reprogramming frequency of timer interrupt (in apic)
 
+fn is_from_userspace(cs : u64) -> bool {
+    (cs & 0b11) == 3
+}
+
 fn timer_interrupt_handler(regs : &mut Registers){
+    serial_println!(
+        "TIMER: cs={:#x}, rip={:#x}, rsp={:#x}, from_user={}",
+        regs.cs,
+        regs.rip,
+        regs.rsp,
+        is_from_userspace(regs.cs),
+    );
+
     let tick = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
 
-    let should_schedule = tick.is_multiple_of(TICKS_EACH_SCHEDULE) && is_from_userspace(regs.cs);
+    let should_schedule = tick.is_multiple_of(TICKS_EACH_SCHEDULE) && is_from_userspace(regs.cs); // TODO : make the kernel preemptible (need to remove the is_userspace, but need to add enable_prempt disable_preempt sections, need to think about ikt)
 
     end_of_interrupt(InterruptIndex::Timer);
 

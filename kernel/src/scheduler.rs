@@ -1,10 +1,10 @@
 use core::{arch::naked_asm, num::NonZero};
 
-use alloc::{collections::vec_deque::VecDeque, vec::Vec};
+use alloc::{boxed::Box, collections::vec_deque::VecDeque, vec::Vec};
 use spin::Mutex;
 use x86_64::{instructions::interrupts::{self, without_interrupts}, registers::{control::{Cr3, Cr3Flags}, rflags::RFlags}};
 
-use crate::{gdt::set_tss_privilege_stack, process::{Pid, Process, cleanup_process_mem_soft}, serial_println, syscall::SYSCALL_KERNEL_RSP, utils::Registers};
+use crate::{gdt::set_tss_privilege_stack, process::{Pid, Process, cleanup_process_mem_soft}, serial_println, stack_chk::__stack_chk_guard, syscall::SYSCALL_KERNEL_RSP, utils::Registers};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum SchedulerState {
@@ -23,7 +23,7 @@ pub enum ReadyMode {
 }
 
 pub struct Scheduler {
-    pub processes : Vec<Process>,
+    pub processes : Vec<Box<Process>>,
     dead_processes_count : usize,
     pub runnable_processes : VecDeque<Pid>,
     pub current_process : Option<Pid>,
@@ -45,13 +45,13 @@ impl Scheduler {
             let pid_idx = self.processes.len();
             let pid = Pid(NonZero::new(pid_idx + 1).unwrap());
             process.pid = pid;
-            self.processes.push(process);
+            self.processes.push(Box::new(process));
             return pid;
         }
 
         for (idx, proc) in self.processes.iter_mut().enumerate(){
             if proc.state == SchedulerState::Dead {
-                *proc = process;
+                *proc = Box::new(process);
                 self.dead_processes_count -= 1;
                 return Pid(NonZero::new(idx + 1).unwrap());
             }
@@ -213,6 +213,28 @@ enum SwitchTarget {
 
 // only call this with no interrupts
 fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, next_pid : Pid, regs : Option<&mut Registers>) -> SwitchTarget {
+
+    // only for debugging, TODO : remove it
+    let rbp: usize;
+
+    unsafe {
+        core::arch::asm!(
+            "mov {}, rbp",
+            out(reg) rbp,
+            options(nomem, nostack, preserves_flags),
+        );
+    }
+
+    let caller_rbp = unsafe { *(rbp as *const usize) };
+    let caller_canary = caller_rbp - 8;
+
+    serial_println!(
+        "closure rbp={:#x}, canary addr={:#x}, value={:#x}",
+        caller_rbp,
+        caller_canary,
+        unsafe { *(caller_canary as *const usize) },
+    );
+
     serial_println!("scheduling to pid {}", next_pid.0.get());
     
     // only for debugging, TODO : remove it
@@ -231,9 +253,18 @@ fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, nex
 
     set_tss_privilege_stack(next_kernel_stack_top);
 
+    #[allow(static_mut_refs)]
     unsafe {
         SYSCALL_KERNEL_RSP = next_kernel_stack_top.as_u64();
+        serial_println!(
+            "before CR3: canary={:#x}",
+            unsafe { *(caller_canary as *const usize) }
+        );
         Cr3::write(next_page_table_phys, Cr3Flags::empty());
+        serial_println!(
+            "after CR3: canary={:#x}",
+            unsafe { *(caller_canary as *const usize) }
+        );
     }
 
     if current_pid != next_pid && scheduler.is_fx_used {
@@ -274,9 +305,22 @@ fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, nex
             }
         }
         SchedulerState::Ready(ReadyMode::Kernel) => {
-            // TODO : make it safer (the vec could be reallocated between creating the ptr and switching the context)
+            // the addresses will not change because of Vec<Box<Process>>
             let old_ctx = &mut current_pid.get_process_mut(&mut scheduler.processes).kernel_context as *mut KernelContext;
             let new_ctx = &next_pid.get_process_mut(&mut scheduler.processes).kernel_context as *const KernelContext;
+            
+            // TODO : ony for debugging, remove this
+            if next_pid.0.get() == 3 {
+                let rbp = unsafe { (*new_ctx).rbp };
+
+                serial_println!(
+                    "RESTORE PID3: rsp={:#x}, rbp={:#x}, rbp-8={:#x}",
+                    unsafe { (*new_ctx).rsp },
+                    rbp,
+                    unsafe { *((rbp - 8) as *const u64) },
+                );
+            }
+            
             SwitchTarget::SwitchKernelToKernel { old_ctx, new_ctx }
         }
         _ => panic!("scheduled non-ready process {:?}", next_pid),

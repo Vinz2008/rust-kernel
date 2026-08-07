@@ -4,7 +4,7 @@ use alloc::{slice, str, vec::Vec};
 use shared_consts::{Arg, CREATE_FILE, DirChild, Fd, READABLE, SHUTDOWN_SUCCESS, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_FSTAT, SYSCALL_READ, SYSCALL_WRITE, Stat, StatMode, WRITABLE};
 use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read, process_write}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, process::{Pid, Process, cleanup_process_complete}, qemu::{self, QemuExitCode}, scheduler::{SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::{get_page_flags_in, map_page_at_in}, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read, process_write}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table}, process::{Pid, Process, cleanup_process_complete}, qemu::{self, QemuExitCode}, scheduler::{ReadyMode, SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 
 // TODO : deprecate the interrupt side for syscalls (how ? should I ?)
@@ -155,6 +155,15 @@ impl SyscallRegs {
     }
 }
 
+fn mark_current_as_user(){
+    with_scheduler_no_int(|scheduler|{
+        let pid = scheduler.current_process.unwrap();
+        let process = pid.get_process_mut(&mut scheduler.processes);
+
+        process.state = SchedulerState::Ready(ReadyMode::User);
+    })
+}
+
 // TODO : add a doc with prototypes/list of args for each syscall
 
 fn syscall_interrupt_handler(regs : &mut SyscallRegs){
@@ -179,6 +188,7 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
         _ => None,
     }.unwrap_or(u64::MAX);
     regs.rax = ret;
+    mark_current_as_user();
 }
 
 fn syscall_exit(regs : &mut SyscallRegs) -> ! {
