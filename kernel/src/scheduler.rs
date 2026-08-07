@@ -214,35 +214,7 @@ enum SwitchTarget {
 // only call this with no interrupts
 fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, next_pid : Pid, regs : Option<&mut Registers>) -> SwitchTarget {
 
-    // only for debugging, TODO : remove it
-    let rbp: usize;
-
-    unsafe {
-        core::arch::asm!(
-            "mov {}, rbp",
-            out(reg) rbp,
-            options(nomem, nostack, preserves_flags),
-        );
-    }
-
-    let caller_rbp = unsafe { *(rbp as *const usize) };
-    let caller_canary = caller_rbp - 8;
-
-    serial_println!(
-        "closure rbp={:#x}, canary addr={:#x}, value={:#x}",
-        caller_rbp,
-        caller_canary,
-        unsafe { *(caller_canary as *const usize) },
-    );
-
     serial_println!("scheduling to pid {}", next_pid.0.get());
-    
-    // only for debugging, TODO : remove it
-    if next_pid.0.get() == 1 {
-        for proc in &scheduler.processes {
-            serial_println!("pid : {:?}: {:?}", proc.pid, proc.state);
-        }
-    }
 
     scheduler.current_process = Some(next_pid);
 
@@ -308,19 +280,6 @@ fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, nex
             // the addresses will not change because of Vec<Box<Process>>
             let old_ctx = &mut current_pid.get_process_mut(&mut scheduler.processes).kernel_context as *mut KernelContext;
             let new_ctx = &next_pid.get_process_mut(&mut scheduler.processes).kernel_context as *const KernelContext;
-            
-            // TODO : ony for debugging, remove this
-            if next_pid.0.get() == 3 {
-                let rbp = unsafe { (*new_ctx).rbp };
-
-                serial_println!(
-                    "RESTORE PID3: rsp={:#x}, rbp={:#x}, rbp-8={:#x}",
-                    unsafe { (*new_ctx).rsp },
-                    rbp,
-                    unsafe { *((rbp - 8) as *const u64) },
-                );
-            }
-            
             SwitchTarget::SwitchKernelToKernel { old_ctx, new_ctx }
         }
         _ => panic!("scheduled non-ready process {:?}", next_pid),

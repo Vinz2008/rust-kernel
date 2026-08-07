@@ -229,14 +229,6 @@ fn is_from_userspace(cs : u64) -> bool {
 }
 
 fn timer_interrupt_handler(regs : &mut Registers){
-    serial_println!(
-        "TIMER: cs={:#x}, rip={:#x}, rsp={:#x}, from_user={}",
-        regs.cs,
-        regs.rip,
-        regs.rsp,
-        is_from_userspace(regs.cs),
-    );
-
     let tick = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
 
     let should_schedule = tick.is_multiple_of(TICKS_EACH_SCHEDULE) && is_from_userspace(regs.cs); // TODO : make the kernel preemptible (need to remove the is_userspace, but need to add enable_prempt disable_preempt sections, need to think about ikt)
