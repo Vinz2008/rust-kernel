@@ -1,4 +1,4 @@
-use raw_cpuid::{CpuId, CpuIdReaderNative, ExtendedFeatures};
+use raw_cpuid::{CpuId, ExtendedFeatures};
 use x86_64::registers::control::{Cr4, Cr4Flags};
 
 use crate::serial_println;

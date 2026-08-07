@@ -12,13 +12,19 @@ build = "build.rs"
 name = "bootloader"
 required-features = ["binary"]
 
+[lib]
+test = false
+bench = false
+
+
 [dependencies]
 xmas-elf = { version = "0.6.2", optional = true }
 x86_64 = { version = "0.14.7", optional = true, default-features = false, features = ["instructions", "inline_asm"] }
 usize_conversions = { version = "0.2.0", optional = true }
 fixedvec = { version = "0.2.4", optional = true }
 bit_field = { version = "0.10.0", optional = true }
-rlibc = { version = "1.0.0", optional = true }
+#rlibc = { version = "1.0.0", optional = true }
+raw-cpuid = { version = "11.6.0", optional = true }
 
 [dependencies.font8x8]
 version = "0.2.4"
@@ -32,7 +38,7 @@ toml = { version = "0.5.1", optional = true }
 
 [features]
 default = []
-binary = ["xmas-elf", "x86_64", "usize_conversions", "fixedvec", "llvm-tools", "toml", "rlibc"]
+binary = ["xmas-elf", "x86_64", "usize_conversions", "fixedvec", "llvm-tools", "toml", "raw-cpuid"]
 vga_320x200 = ["font8x8"]
 recursive_page_table = []
 map_physical_memory = []

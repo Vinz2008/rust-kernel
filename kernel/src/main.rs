@@ -63,10 +63,12 @@ mod initrd;
 
 mod ringbuf;
 
+mod stack_chk;
 mod security;
 
 entry_point!(kernel_main);
 
+// TODO : global random
 
 // TODO : enable stack smashing protection on the kernel (and for userspace exes ?)
 
@@ -98,7 +100,6 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     #[cfg(test)]
     test_main();
-
 
     gdt::init();
     interrupts::init_idt();

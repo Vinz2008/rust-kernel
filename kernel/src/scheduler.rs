@@ -6,7 +6,7 @@ use x86_64::{instructions::interrupts::{self, without_interrupts}, registers::{c
 
 use crate::{gdt::set_tss_privilege_stack, process::{Pid, Process, cleanup_process_mem_soft}, serial_println, syscall::SYSCALL_KERNEL_RSP, utils::Registers};
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum SchedulerState {
     Loading,
     Ready(ReadyMode),
@@ -16,7 +16,7 @@ pub enum SchedulerState {
     Dead,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ReadyMode {
     Kernel,
     User,
@@ -34,7 +34,9 @@ pub struct Scheduler {
 impl Scheduler {
     pub fn new_char(&mut self){
         if let Some(pid) = self.processes_waiting_keyboard.pop_front() {
-            self.make_runnable_inner(pid, ReadyMode::Kernel);
+            if matches!(pid.get_process(&self.processes).state, SchedulerState::WaitKeyboard){
+                self.make_runnable_inner(pid, ReadyMode::Kernel);
+            }
         }
     }
 
@@ -69,6 +71,17 @@ impl Scheduler {
 
     pub fn make_runnable(&mut self, pid : Pid){
         self.make_runnable_inner(pid, ReadyMode::User);
+    }
+
+    pub fn requeue_current(&mut self, pid : Pid){
+        debug_assert_eq!(self.current_process, Some(pid));
+        debug_assert!(matches!(
+            pid.get_process(&self.processes).state,
+            SchedulerState::Ready(_)
+        ));
+        debug_assert!(!self.runnable_processes.contains(&pid));
+
+        self.runnable_processes.push_back(pid);
     }
 
     pub fn make_runnable_kernel(&mut self, pid : Pid){
@@ -201,6 +214,14 @@ enum SwitchTarget {
 // only call this with no interrupts
 fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, next_pid : Pid, regs : Option<&mut Registers>) -> SwitchTarget {
     serial_println!("scheduling to pid {}", next_pid.0.get());
+    
+    // only for debugging, TODO : remove it
+    if next_pid.0.get() == 1 {
+        for proc in &scheduler.processes {
+            serial_println!("pid : {:?}: {:?}", proc.pid, proc.state);
+        }
+    }
+
     scheduler.current_process = Some(next_pid);
 
     let (next_state, next_page_table_phys, next_kernel_stack_top, next_saved_regs) = {
@@ -315,7 +336,8 @@ pub fn schedule(regs : &mut Registers){
             Some(next) => {
                 if current_is_ready && current_pid != next {
                     serial_println!("adding to ready process pid {}", current_pid.0.get());
-                    scheduler.make_runnable(current_pid);
+                    scheduler.requeue_current(current_pid);
+                    //scheduler.make_runnable(current_pid);
                 }
                 next
             },

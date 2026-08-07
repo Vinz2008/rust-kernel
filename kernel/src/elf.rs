@@ -16,6 +16,7 @@ pub enum ElfError {
     TranslatePhysErr,
     InvalidElf,
     ExecutableStackUnsupported,
+    WriteExecutableSection,
 }
 
 impl From<ParseError> for ElfError {
@@ -24,7 +25,7 @@ impl From<ParseError> for ElfError {
     }
 }
 
-pub fn elf_to_page_permission(elf_flags : u32) -> PageTableFlags {
+pub fn elf_to_page_permission(elf_flags : u32) -> Option<PageTableFlags> {
     let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
     if elf_flags & elf::abi::PF_W != 0 {
         flags |= PageTableFlags::WRITABLE;
@@ -32,7 +33,12 @@ pub fn elf_to_page_permission(elf_flags : u32) -> PageTableFlags {
     if elf_flags & elf::abi::PF_X == 0 {
         flags |= PageTableFlags::NO_EXECUTE;
     }
-    flags
+
+    if flags.contains(PageTableFlags::WRITABLE) && !flags.contains(PageTableFlags::NO_EXECUTE) {
+        return None;
+    }
+
+    Some(flags)
 }
 
 fn load_segment(content: &[u8], process : &Process, prog_header : &ProgramHeader) -> Result<(), ElfError> {
@@ -57,7 +63,7 @@ fn load_segment(content: &[u8], process : &Process, prog_header : &ProgramHeader
     let start_page = Page::<Size4KiB>::containing_address(start);
     let end_page = Page::<Size4KiB>::containing_address(end);
 
-    let flags = elf_to_page_permission(elf_mem_flags);
+    let flags = elf_to_page_permission(elf_mem_flags).ok_or(ElfError::WriteExecutableSection)?;
     
     let phys_offset = PHYSICAL_MEMORY_OFFSET.as_u64();
 

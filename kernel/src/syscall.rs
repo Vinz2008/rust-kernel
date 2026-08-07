@@ -305,11 +305,17 @@ fn syscall_get_char(regs : &mut SyscallRegs) -> u64 {
                 return ControlFlow::Break(c);
             }
 
-            let mut scheduler_lock = SCHEDULER.lock();
-            let current_pid = scheduler_lock.current_process.unwrap();
-            serial_println!("get_char: current pid {:?}", current_pid);
-            current_pid.get_process_mut(&mut scheduler_lock.processes).state = SchedulerState::WaitKeyboard;
-            scheduler_lock.processes_waiting_keyboard.push_back(current_pid);
+            {
+                let mut scheduler_lock = SCHEDULER.lock();
+                let current_pid = scheduler_lock.current_process.unwrap();
+                serial_println!("get_char: current pid {:?}", current_pid);
+                current_pid.get_process_mut(&mut scheduler_lock.processes).state = SchedulerState::WaitKeyboard;
+                scheduler_lock.processes_waiting_keyboard.push_back(current_pid);
+            }
+
+            
+            schedule(regs);
+            
             ControlFlow::Continue(())
         });
 
@@ -318,7 +324,7 @@ fn syscall_get_char(regs : &mut SyscallRegs) -> u64 {
             return c as u64;
         }
         
-        schedule(regs);
+        
         serial_println!("get_char: resumed after schedule");
     }
 }

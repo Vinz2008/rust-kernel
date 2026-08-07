@@ -2,4 +2,8 @@
   "rust-analyzer.cargo.extraEnv": {
     "CARGO_UNSTABLE_JSON_TARGET_SPEC": "true",
   },
+  /*"rust-analyzer.linkedProjects": [
+    "./Cargo.toml",
+    "./bootloader/Cargo.toml"
+  ],*/
 }

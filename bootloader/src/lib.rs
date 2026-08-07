@@ -31,8 +31,24 @@ compile_error!("This crate only supports the x86_64 architecture.");
 #[macro_export]
 macro_rules! entry_point {
     ($path:path) => {
+        unsafe extern "C" {
+            static mut __stack_chk_guard: usize;
+        }
         #[export_name = "_start"]
-        pub extern "C" fn __impl_start(boot_info: &'static $crate::bootinfo::BootInfo) -> ! {
+        #[unsafe(naked)]
+        pub extern "C" fn __real_start(_boot_info: &'static $crate::bootinfo::BootInfo) -> ! {
+            // TODO : setup stack_chk, call __impl_start
+            core::arch::naked_asm!(
+                "mov rax, [rdi + {guard_offset}]",
+                "mov [rip + {stack_guard}], rax",
+                "jmp {start}",
+                guard_offset = const core::mem::offset_of!($crate::bootinfo::BootInfo, rand_stack_guard),
+                stack_guard = sym __stack_chk_guard,
+                start = sym __impl_start
+            )
+        }
+
+        fn __impl_start(boot_info: &'static $crate::bootinfo::BootInfo) -> ! {
             // validate the signature of the program entry point
             let f: fn(&'static $crate::bootinfo::BootInfo) -> ! = $path;
 

@@ -12,7 +12,7 @@ pub fn map_userspace_stack(process : &Process, stack_flags : u32){
     let end = VirtAddr::new((USER_STACK_TOP - 1) as u64);
     let start_page = Page::<Size4KiB>::containing_address(start);
     let end_page = Page::<Size4KiB>::containing_address(end);
-    let page_table_flags = elf_to_page_permission(stack_flags);
+    let page_table_flags = elf_to_page_permission(stack_flags).unwrap(); // has already been checked when loading elf
     for page in Page::range_inclusive(start_page, end_page){
         map_page_at_in(process.page_table_phys.start_address(), page.start_address(),  page_table_flags).unwrap().ignore(); // TODO : should I really unwrap
     }

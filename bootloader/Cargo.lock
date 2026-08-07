@@ -15,6 +15,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
+name = "bitflags"
+version = "2.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
+
+[[package]]
 name = "bootloader"
 version = "0.9.35"
 dependencies = [
@@ -22,7 +28,7 @@ dependencies = [
  "fixedvec",
  "font8x8",
  "llvm-tools",
- "rlibc",
+ "raw-cpuid",
  "toml",
  "usize_conversions",
  "x86_64",
@@ -48,10 +54,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "955be5d0ca0465caf127165acb47964f911e2bc26073e865deb8be7189302faf"
 
 [[package]]
-name = "rlibc"
-version = "1.0.0"
+name = "raw-cpuid"
+version = "11.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc874b127765f014d792f16763a81245ab80500e2ad921ed4ee9e82481ee08fe"
+checksum = "498cd0dc59d73224351ee52a95fee0f1a617a2eae0e7d9d720cc622c73a54186"
+dependencies = [
+ "bitflags 2.13.1",
+]
 
 [[package]]
 name = "serde"
@@ -87,7 +96,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fb611915c917c6296d11e23f71ff1ecfe49c5766daba92cd3df52df6b58285b6"
 dependencies = [
  "bit_field",
- "bitflags",
+ "bitflags 1.2.1",
  "volatile",
 ]
 

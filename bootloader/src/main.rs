@@ -4,10 +4,10 @@
 #[cfg(not(target_os = "none"))]
 compile_error!("The bootloader crate must be compiled for the `x86_64-bootloader.json` target");
 
-extern crate rlibc;
+//extern crate rlibc;
 
 use bootloader::bootinfo::{BootInfo, FrameRange};
-use core::arch::asm;
+use core::arch::{asm, x86_64::_rdrand64_step};
 use core::{arch::global_asm, convert::TryInto, panic::PanicInfo};
 use core::{mem, slice};
 use fixedvec::alloc_stack;
@@ -18,6 +18,8 @@ use x86_64::structures::paging::{
     PageTableIndex, PhysFrame, RecursivePageTable, Size2MiB, Size4KiB,
 };
 use x86_64::{PhysAddr, VirtAddr};
+
+use raw_cpuid::CpuId;
 
 // The bootloader_config.rs file contains some configuration constants set by the build script:
 // PHYSICAL_MEMORY_OFFSET: The offset into the virtual address space where the physical memory
@@ -324,12 +326,30 @@ fn bootloader_main(
         0 // Value is unused by BootInfo::new, so this doesn't matter
     };
 
+    fn stack_chk_random() -> Option<u64> {
+        let cpuid = CpuId::new();
+
+        if cpuid.get_feature_info().is_some_and(|features| features.has_rdrand()){
+            for _ in 0..10 {
+                let mut value = 0;
+                if unsafe { _rdrand64_step(&mut value) } == 1 {
+                    return Some(value);
+                }
+            }
+        }
+        
+        None
+    }
+
+    let guard = stack_chk_random().expect("no entropy available for stack canary") & 0xffff_ffff_ffff_ff00;
+
     // Construct boot info structure.
     let mut boot_info = BootInfo::new(
         memory_map,
         kernel_memory_info.tls_segment,
         recursive_page_table_addr.as_u64(),
         physical_memory_offset,
+        guard
     );
     boot_info.memory_map.sort();
 
