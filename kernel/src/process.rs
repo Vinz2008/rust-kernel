@@ -5,7 +5,7 @@ use shared_consts::{Fd, USER_HEAP_SIZE, USER_HEAP_START};
 use spin::Mutex;
 use x86_64::{PhysAddr, VirtAddr, instructions::interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
-use crate::{allocator::{allocate_userspace_level_4_table, deallocate_userspace_level_4_table, deallocate_virtual_page, map_page_at_in, map_page_phys_at_in}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main, with_scheduler_no_int}, serial_println, sse::{DEFAULT_FXSTATE, FxState}, userspace::USER_STACK_TOP, utils::Registers};
+use crate::{allocator::{allocate_userspace_level_4_table, deallocate_userspace_page_tables, deallocate_virtual_page, map_page_at_in, map_page_phys_at_in}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main, with_scheduler_no_int}, serial_println, sse::{DEFAULT_FXSTATE, FxState}, userspace::{USER_STACK_SIZE, USER_STACK_TOP}, utils::Registers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pid(pub NonZero<usize>);
@@ -33,6 +33,12 @@ pub enum ProcessKind {
     Kernel,
 }
 
+#[derive(Clone, Copy)]
+pub struct ElfMemRegion {
+    pub start: VirtAddr,
+    pub end: VirtAddr, // exclusive
+}
+
 pub struct Process {
     pub pid : Pid,
     pub parent : Option<Pid>,
@@ -50,6 +56,7 @@ pub struct Process {
     pub heap_start : VirtAddr,
     pub heap_break : VirtAddr,
     pub heap_max : VirtAddr,
+    pub elf_regions : Vec<ElfMemRegion>,
 }
 
 // TODO : add in the first file descriptors stdin and stderr
@@ -124,6 +131,7 @@ fn current_rsp() -> VirtAddr {
     VirtAddr::new(rsp)
 }
 
+// TODO : remove debug code ?
 fn deallocate_kernel_stack(stack_top : VirtAddr, page_table_frame : PhysFrame){
     let stack_start = stack_top - KERNEL_PROC_STACK_SIZE;
 
@@ -177,11 +185,43 @@ fn deallocate_user_heap(heap_start : VirtAddr, heap_break : VirtAddr, page_table
     }
 }
 
+fn deallocate_user_stack(page_table_frame : PhysFrame){
+    let user_stack_end = USER_STACK_TOP;
+    let user_stack_start = user_stack_end - USER_STACK_SIZE;
+    let start_page = Page::<Size4KiB>::containing_address(VirtAddr::new(user_stack_start as u64));
+    let end_page = Page::<Size4KiB>::containing_address(VirtAddr::new((user_stack_end-1) as u64));
+    let page_range= Page::range_inclusive(start_page, end_page);
+    for page in page_range {
+        deallocate_virtual_page(page_table_frame, page);
+    }
+}
+
+fn deallocate_elf_regions(regions : &[ElfMemRegion], page_table_frame : PhysFrame){
+    for &region in regions {
+        let start_page = Page::<Size4KiB>::containing_address(region.start);
+        let end_page = Page::<Size4KiB>::containing_address(region.end-1);
+        let page_range= Page::range_inclusive(start_page, end_page);
+        for page in page_range {
+            deallocate_virtual_page(page_table_frame, page);
+        }
+    }
+}
+
 // only cleanup what can be immediately
 pub fn cleanup_process_mem_soft(process : &Process){
     deallocate_user_heap(process.heap_start, process.heap_break, process.page_table_phys);
-    
+    deallocate_user_stack(process.page_table_phys);
+    deallocate_elf_regions(&process.elf_regions, process.page_table_phys);
     // TODO
+}
+
+// TODO : call when cleaning up zombie processes
+pub fn cleanup_process_complete(process : &Process){
+    serial_println!("cleanup complete");
+    serial_println!("before kernel stack cleanup");
+    deallocate_kernel_stack(process.kernel_stack_top, process.page_table_phys);
+    deallocate_userspace_page_tables(process.page_table_phys);
+    serial_println!("after PML4 cleanup");
 }
 
 fn init_fd_list() -> Result<Vec<Option<Arc<OpenedFile>>>, FileError> {
@@ -192,14 +232,6 @@ fn init_fd_list() -> Result<Vec<Option<Arc<OpenedFile>>>, FileError> {
     Ok(v)
 }
 
-// TODO : call when cleaning up zombie processes
-pub fn cleanup_process_complete(process : &Process){
-    serial_println!("cleanup complete");
-    serial_println!("before kernel stack cleanup");
-    deallocate_kernel_stack(process.kernel_stack_top, process.page_table_phys);
-    deallocate_userspace_level_4_table(process.page_table_phys);
-    serial_println!("after PML4 cleanup");
-}
 
 impl Process {
     pub fn add_opened_file(&mut self, file : Arc<OpenedFile>) -> Fd {
@@ -257,6 +289,7 @@ impl Process {
                 heap_start: VirtAddr::new(USER_HEAP_START as u64),
                 heap_break: VirtAddr::new(USER_HEAP_START as u64),
                 heap_max: VirtAddr::new((USER_HEAP_START + USER_HEAP_SIZE) as u64),
+                elf_regions: Vec::new(),
             });
 
             let new_process_idx = new_process_pid.0.get() - 1;
@@ -324,6 +357,7 @@ impl Process {
             heap_start: VirtAddr::new(0),
             heap_break: VirtAddr::new(0),
             heap_max: VirtAddr::new(0),
+            elf_regions: Vec::new(),
         }));
         
     }

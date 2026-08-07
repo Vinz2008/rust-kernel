@@ -4,7 +4,7 @@ use alloc::{boxed::Box, collections::vec_deque::VecDeque, vec::Vec};
 use spin::Mutex;
 use x86_64::{instructions::interrupts::{self, without_interrupts}, registers::{control::{Cr3, Cr3Flags}, rflags::RFlags}};
 
-use crate::{gdt::set_tss_privilege_stack, process::{Pid, Process, cleanup_process_mem_soft}, serial_println, stack_chk::__stack_chk_guard, syscall::SYSCALL_KERNEL_RSP, utils::Registers};
+use crate::{allocator::serial_print_allocs_deallocs, gdt::set_tss_privilege_stack, process::{Pid, Process, cleanup_process_mem_soft}, serial_println, syscall::SYSCALL_KERNEL_RSP, utils::Registers};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum SchedulerState {
@@ -228,15 +228,7 @@ fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, nex
     #[allow(static_mut_refs)]
     unsafe {
         SYSCALL_KERNEL_RSP = next_kernel_stack_top.as_u64();
-        serial_println!(
-            "before CR3: canary={:#x}",
-            unsafe { *(caller_canary as *const usize) }
-        );
         Cr3::write(next_page_table_phys, Cr3Flags::empty());
-        serial_println!(
-            "after CR3: canary={:#x}",
-            unsafe { *(caller_canary as *const usize) }
-        );
     }
 
     if current_pid != next_pid && scheduler.is_fx_used {
@@ -371,6 +363,8 @@ pub fn kill_current_and_schedule(exit_code : i32) -> ! {
 
         let current = current_pid.get_process_mut(&mut scheduler.processes);
         cleanup_process_mem_soft(current);
+
+        serial_print_allocs_deallocs("after exit soft cleanup");
         
         current.state = SchedulerState::Zombie(exit_code);
         

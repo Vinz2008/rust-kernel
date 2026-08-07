@@ -1,3 +1,5 @@
+use core::sync::atomic::{AtomicUsize, Ordering};
+
 use alloc::vec;
 use alloc::vec::{Vec};
 use bootloader::bootinfo::MemoryRegionType;
@@ -67,6 +69,7 @@ impl<S: PageSize> FrameDeallocator<S> for BitMapFrameAllocator {
 
         let start_idx = (frame_start / Size4KiB::SIZE) as usize;
         self.next_hint = self.next_hint.min(start_idx);
+        FRAMES_DEALLOCATED.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -132,6 +135,15 @@ fn init_bitmap_frame_allocator(mapper: &mut OffsetPageTable<'static>, boot_frame
     frame_alloc.next_hint = frame_alloc.find_first_free_contiguous(1, 1).unwrap_or(frame_count);
 
     frame_alloc
+}
+
+pub static FRAMES_ALLOCATED: AtomicUsize = AtomicUsize::new(0);
+pub static FRAMES_DEALLOCATED: AtomicUsize = AtomicUsize::new(0);
+
+pub fn serial_print_allocs_deallocs(when : &'static str){
+    let allocs = FRAMES_ALLOCATED.load(Ordering::Relaxed);
+    let deallocs = FRAMES_DEALLOCATED.load(Ordering::Relaxed);
+    serial_println!("frames when {}: alloc={} dealloc={} diff={}", when, allocs, deallocs, allocs-deallocs);
 }
 
 impl BitMapFrameAllocator {
@@ -201,6 +213,8 @@ impl BitMapFrameAllocator {
 
         let addr = (first_idx as u64).checked_mul(Size4KiB::SIZE)?;
         let phys_frame = PhysFrame::containing_address(PhysAddr::new(addr));
+        
+        FRAMES_ALLOCATED.fetch_add(page_nb, Ordering::Relaxed);
 
         Some(phys_frame)
     }
@@ -294,11 +308,11 @@ pub fn deallocate_virtual_page(page_table_frame : PhysFrame, page : Page){
     let (phys_frame, flush) = mapper.unmap(page).unwrap();
     flush.flush();
     
-    serial_println!(
+    /*serial_println!(
         "unmap virt={:#x} -> frame={:#x}",
         page.start_address().as_u64(),
         phys_frame.start_address().as_u64(),
-    );
+    );*/
 
     unsafe {
         MEMORY_MANAGER.get().unwrap().lock().frame_allocator.deallocate_frame(phys_frame);
@@ -323,9 +337,64 @@ pub fn allocate_userspace_level_4_table() -> PhysFrame {
     new_table_frame
 }
 
-pub fn deallocate_userspace_level_4_table(phys_frame : PhysFrame){
+fn free_p2(p2_frame : PhysFrame, frame_allocator : &mut BitMapFrameAllocator){
+    let p2_ptr = (PHYSICAL_MEMORY_OFFSET + p2_frame.start_address().as_u64()).as_mut_ptr::<PageTable>();
+    let p2 = unsafe { &mut *p2_ptr };
+
+    for entry in p2.iter_mut(){
+        if !entry.flags().contains(PageTableFlags::PRESENT){
+            continue;
+        }
+        debug_assert!(!entry.flags().contains(PageTableFlags::HUGE_PAGE));
+        let p1_frame = PhysFrame::<Size4KiB>::containing_address(entry.addr());
+
+        entry.set_unused();
+        unsafe {
+            frame_allocator.deallocate_frame(p1_frame);
+        }
+    }
+}
+
+fn free_p3(p3_frame : PhysFrame, frame_allocator : &mut BitMapFrameAllocator){
+    let p3_ptr = (PHYSICAL_MEMORY_OFFSET + p3_frame.start_address().as_u64()).as_mut_ptr::<PageTable>();
+    let p3 = unsafe { &mut *p3_ptr };
+
+    for entry in p3.iter_mut(){
+        if !entry.flags().contains(PageTableFlags::PRESENT){
+            continue;
+        }
+        debug_assert!(!entry.flags().contains(PageTableFlags::HUGE_PAGE));
+        let p2_frame = PhysFrame::containing_address(entry.addr());
+
+        free_p2(p2_frame, frame_allocator);
+
+        entry.set_unused();
+        unsafe {
+            frame_allocator.deallocate_frame(p2_frame);
+        }
+    }
+}
+
+pub fn deallocate_userspace_page_tables(p4_frame : PhysFrame){
+    let mut mem_manager_lock = MEMORY_MANAGER.get().unwrap().lock();
+    let p4_ptr = (PHYSICAL_MEMORY_OFFSET + p4_frame.start_address().as_u64()).as_mut_ptr::<PageTable>();
+    let p4 = unsafe { &mut *p4_ptr };
+
+    for p4_index in 0..256 {
+        let p4_entry = &mut p4[p4_index];
+
+        if !p4_entry.flags().contains(PageTableFlags::PRESENT) {
+            continue;
+        }
+        let p3_frame = PhysFrame::containing_address(p4_entry.addr());
+        free_p3(p3_frame, &mut mem_manager_lock.frame_allocator);
+        p4_entry.set_unused();
+        unsafe {
+            mem_manager_lock.frame_allocator.deallocate_frame(p3_frame);
+        }
+    }
+
     unsafe {
-        let mut mem_manager_lock = MEMORY_MANAGER.get().unwrap().lock();
-        mem_manager_lock.frame_allocator.deallocate_frame(phys_frame);
+        mem_manager_lock.frame_allocator.deallocate_frame(p4_frame);
     }
 }

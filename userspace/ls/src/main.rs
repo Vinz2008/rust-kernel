@@ -32,6 +32,6 @@ pub extern "Rust" fn main(args : Args<'_>) -> i32 {
             println!();
         }
     }
-    println!("return ls");
+    //println!("return ls");
     0
 }

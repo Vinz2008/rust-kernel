@@ -154,8 +154,8 @@ pub fn load_initrd_init() -> ! {
 
 
         let elf = {
-            let scheduler_lock = SCHEDULER.lock();
-            load_elf(&init_content, process_pid.get_process(&scheduler_lock.processes))
+            let mut scheduler_lock = SCHEDULER.lock();
+            load_elf(&init_content, process_pid.get_process_mut(&mut scheduler_lock.processes))
         }.expect("failed loading init");
         
         (elf.ehdr.e_entry, process_pid)

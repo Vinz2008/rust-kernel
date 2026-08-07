@@ -3,9 +3,10 @@ use x86_64::{VirtAddr, structures::paging::{Page, Size4KiB}};
 use crate::{allocator::map_page_at_in, elf::elf_to_page_permission, process::Process};
 
 pub const USER_STACK_TOP: usize = 0x0000_7fff_ffff_f000;
-const USER_STACK_SIZE: usize = 1024 * 1024; // 1MiB
+pub const USER_STACK_SIZE: usize = 1024 * 1024; // 1MiB
 
 
+// TODO : maybe only map a limited number of pages, for ex 1, and only map them on demand (when reading it, and doing the page fault)
 pub fn map_userspace_stack(process : &Process, stack_flags : u32){
     // TODO : maybe replace the pattern like this with a range of page with a function mapping multiple page (like for example a start address and a number of pages or a len ?)
     let start = VirtAddr::new((USER_STACK_TOP - USER_STACK_SIZE) as u64);

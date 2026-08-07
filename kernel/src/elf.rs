@@ -3,7 +3,7 @@ use core::{cmp::min, ptr};
 use elf::{ElfBytes, ParseError, abi::PF_X, endian::AnyEndian, segment::ProgramHeader};
 use x86_64::{VirtAddr, structures::paging::{Page, PageSize, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::map_page_at_in, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, process::Process, serial_println, userspace::map_userspace_stack};
+use crate::{allocator::map_page_at_in, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, process::{ElfMemRegion, Process}, serial_println, userspace::map_userspace_stack};
 
 
 #[derive(Debug)]
@@ -41,7 +41,7 @@ pub fn elf_to_page_permission(elf_flags : u32) -> Option<PageTableFlags> {
     Some(flags)
 }
 
-fn load_segment(content: &[u8], process : &Process, prog_header : &ProgramHeader) -> Result<(), ElfError> {
+fn load_segment(content: &[u8], process : &mut Process, prog_header : &ProgramHeader) -> Result<(), ElfError> {
     let virt_addr = prog_header.p_vaddr;
     let memory_size = prog_header.p_memsz as usize;
     let file_size = prog_header.p_filesz as usize;
@@ -109,10 +109,15 @@ fn load_segment(content: &[u8], process : &Process, prog_header : &ProgramHeader
         written += chunk_len;
     }
 
+    process.elf_regions.push(ElfMemRegion {
+        start: start_page.start_address(),
+        end: end_page.start_address() + end_page.size(),
+    });
+
     Ok(())
 }
 
-pub fn load_elf<'a>(content : &'a [u8], process : &Process) -> Result<ElfBytes<'a, AnyEndian>, ElfError> {
+pub fn load_elf<'a>(content : &'a [u8], process : &mut Process) -> Result<ElfBytes<'a, AnyEndian>, ElfError> {
     let file = ElfBytes::<AnyEndian>::minimal_parse(content)?;
 
     if file.ehdr.e_machine != elf::abi::EM_X86_64 {
