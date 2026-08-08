@@ -14,7 +14,7 @@ extern crate alloc;
 
 use bootloader::{BootInfo, entry_point};
 
-use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall_and_int, process::Process, rtc::{BOOT_TIME, init_rtc}, security::enable_security_features, sse::init_fpu_template, utils::hlt_loop};
+use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall_and_int, process::Process, random::init_kernel_rng, rtc::{BOOT_TIME, init_rtc}, security::enable_security_features, sse::init_fpu_template, utils::hlt_loop};
 
 
 mod tests;
@@ -66,6 +66,9 @@ mod ringbuf;
 mod stack_chk;
 mod security;
 
+mod random;
+
+
 entry_point!(kernel_main);
 
 // TODO : global random (ChaCha20 ? Mersenne Twister ?)
@@ -110,9 +113,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     init_fpu_template();
 
-
-    // TODO : remove pic initialization in the future (just disable it using the .lock().disable(), is small enough that I can just implement it without deps)
-    //unsafe { pic::PICS.lock().initialize() };
+    init_kernel_rng();
 
     enable_security_features();
 
