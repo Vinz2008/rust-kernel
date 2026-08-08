@@ -39,17 +39,8 @@ lazy_static! {
     };
 }
 
-// TODO : remove the interrupt_idx arg
-pub fn end_of_interrupt(interrupt_idx : InterruptIndex){
+pub fn end_of_interrupt(){
     LOCAL_APIC.get().unwrap().lock().end_of_interrupt();
-    /*let has_enabled_apic = HAS_ENABLED_APIC.load(Ordering::Relaxed);
-    if has_enabled_apic {
-        LOCAL_APIC.get().unwrap().lock().end_of_interrupt();
-    } else {
-        unsafe {
-            PICS.lock().notify_end_of_interrupt(interrupt_idx as u8);
-        }
-    }*/
 }
 
 pub fn init_idt() {
@@ -225,7 +216,7 @@ pub unsafe extern "C" fn timer_interrupt_stub() -> ! {
 }
 
 static TICKS: AtomicU64 = AtomicU64::new(0);
-const TICKS_EACH_SCHEDULE: u64 = 10; // TODO : change this after reprogramming frequency of timer interrupt (in apic)
+const TICKS_EACH_SCHEDULE: u64 = 1; // TODO : if will not change this (so it stays at 1), remove the tick.is_multiple_of check ?
 
 fn is_from_userspace(cs : u64) -> bool {
     (cs & 0b11) == 3
@@ -236,7 +227,7 @@ fn timer_interrupt_handler(regs : &mut Registers){
 
     let should_schedule = tick.is_multiple_of(TICKS_EACH_SCHEDULE) && is_from_userspace(regs.cs); // TODO : make the kernel preemptible (need to remove the is_userspace, but need to add enable_prempt disable_preempt sections, need to think about ikt)
 
-    end_of_interrupt(InterruptIndex::Timer);
+    end_of_interrupt();
 
     if should_schedule {
         // timer in user code
@@ -301,7 +292,7 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
         }
     }
 
-    end_of_interrupt(InterruptIndex::Keyboard);
+    end_of_interrupt();
 }
 
 extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStackFrame) {

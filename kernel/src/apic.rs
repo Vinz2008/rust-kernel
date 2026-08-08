@@ -116,9 +116,6 @@ const TIMER_PERIODIC: u32 = 1 << 17;
 // 0b0011 = divide by 16
 const TIMER_DIVIDE_16: u32 = 0b0011;
 
-// for now, timer 100 Hz
-const TIMER_HZ: u64 = 100;
-
 const PIT_FREQUENCY: u64 = 1_193_182;
 
 struct PitWait {
@@ -206,8 +203,6 @@ impl LocalApic {
 
         regs.spurious_interrupt_vector.write(LAPIC_ENABLE | SPURIOUS_VECTOR as u32);
 
-
-        //regs.timer_lvt.write(MASKED); // TODO : instead of routing the pic timer to the normal pit, use the real apic timer (need LAPIC time regs)
         let pit_wait = prepare_pit_wait_ms(50);
 
         regs.timer_lvt.write(InterruptIndex::Timer as u32 | MASKED);
@@ -358,14 +353,9 @@ fn _init_apic(acpi_tables : AcpiTables<MapHandler>) -> Result<(), AcpiError> {
         io_apic_lock.route(gsi_keyboard, InterruptIndex::Keyboard as u8, local_apid_id);
     }
 
-    //unsafe { pic::PICS.lock().disable() };
-    //HAS_ENABLED_APIC.store(true, Ordering::Relaxed);
-
     Ok(())
 }
 
-// TODO : remove this after removing PIC support ?
-//pub static HAS_ENABLED_APIC : AtomicBool = AtomicBool::new(false);
 
 pub fn init_apic(acpi_tables : AcpiTables<MapHandler>) -> Result<(), AcpiError> {
     // TODO : only do it if supported
