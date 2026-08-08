@@ -6,8 +6,6 @@ use x86_64::{VirtAddr, instructions::{interrupts::without_interrupts, port::Port
 
 use crate::{acpi::MapHandler, interrupts::InterruptIndex, paging::PHYSICAL_MEMORY_OFFSET, pic, serial_println};
 
-// TODO : finish this
-
 #[repr(transparent)]
 struct MmioRegister {
     val : UnsafeCell<u32>,
@@ -87,8 +85,6 @@ struct LocalApicRegisters {
     divide_configuration: MmioRegister,
 }
 
-// TODO : reprogram pic to 100 Hz after enabling apic timer
-
 impl LocalApicRegisters {
     fn id(&self) -> u8 {
         ((self.id.read() >> 24) & 0xFF) as u8
@@ -111,7 +107,6 @@ const SPURIOUS_VECTOR: u8 = 0xff;
 
 const TIMER_PERIODIC: u32 = 1 << 17;
 
-// TODO : change this
 // Divide configuration encoding:
 // 0b0011 = divide by 16
 const TIMER_DIVIDE_16: u32 = 0b0011;
@@ -195,10 +190,10 @@ impl LocalApic {
         
         regs.task_priority.write(0);
             
-        regs.thermal_lvt.write(MASKED); // TODO ?
-        regs.performance_lvt.write(MASKED); // TODO ?
-        regs.lint0_lvt.write(MASKED); // TODO ?
-        regs.lint1_lvt.write(MASKED); // TODO ?
+        regs.thermal_lvt.write(MASKED);
+        regs.performance_lvt.write(MASKED);
+        regs.lint0_lvt.write(MASKED);
+        regs.lint1_lvt.write(MASKED); // TODO ? could need it for some NMI events
         regs.error_lvt.write(MASKED);
 
         regs.spurious_interrupt_vector.write(LAPIC_ENABLE | SPURIOUS_VECTOR as u32);
@@ -298,7 +293,7 @@ fn _init_apic(acpi_tables : AcpiTables<MapHandler>) -> Result<(), AcpiError> {
 
     let (frame, mut flags) = ApicBase::read();
 
-    // TODO : support for X2APIC
+    // TODO : support for X2APIC ? (only need it for large smp systems)
     assert!(!flags.contains(ApicBaseFlags::X2APIC_ENABLE), "x2APIC enabled; x2APIC is not supported yet");
 
     if !flags.contains(ApicBaseFlags::LAPIC_ENABLE){
