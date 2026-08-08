@@ -16,6 +16,7 @@ pub const SYSCALL_CHANGE_CWD : u64 = 11;
 pub const SYSCALL_FSTAT : u64 = 12;
 pub const SYSCALL_READ : u64 = 13;
 pub const SYSCALL_WRITE : u64 = 14;
+pub const SYSCALL_GET_RANDOM : u64 = 15;
 
 pub const BACKSPACE: char = '\u{0008}';
 pub const BACKSPACE_BYTE : u8 = b'\x08';

@@ -20,6 +20,7 @@ mod allocator;
 pub mod syscall;
 pub mod print;
 pub mod fs;
+pub mod random;
 
 unsafe extern "Rust" {
     fn main(args : Args<'_>) -> i32;

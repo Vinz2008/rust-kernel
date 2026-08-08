@@ -2,7 +2,7 @@ use core::{hint::unreachable_unchecked, mem::MaybeUninit};
 
 use alloc::vec::Vec;
 use arrayvec::ArrayString;
-use shared_consts::{Arg, DirChild, Fd, PATH_MAX, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_OPEN, SYSCALL_READ, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_WRITE, Stat};
+use shared_consts::{Arg, DirChild, Fd, PATH_MAX, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_GET_RANDOM, SYSCALL_OPEN, SYSCALL_READ, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_WRITE, Stat};
 
 pub unsafe fn syscall0(syscall_nb : u64) -> u64 {
     let ret : u64;
@@ -257,5 +257,17 @@ pub fn syscall_write(fd : Fd, buf : &[u8]) -> Option<usize> {
     match ret {
         u64::MAX => None,
         _ => Some(ret as usize),
+    }
+}
+
+pub fn syscall_get_random(buf : &mut [u8]) -> Option<()> {
+    let buf_ptr = buf.as_ptr() as u64;
+    let buf_size = buf.len() as u64;
+    let ret = unsafe {
+        syscall2(SYSCALL_GET_RANDOM, buf_ptr, buf_size)
+    };
+    match ret {
+        u64::MAX => None,
+        _ => Some(()),
     }
 }

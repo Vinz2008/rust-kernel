@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use rt::{self as _, Args, fs::File, print, println, shared_consts::{DIRENT_DIR, DirChild, PATH_NAME_MAX, READABLE}, syscall::{syscall_get_dir_children}};
+use rt::{self as _, Args, fs::File, print, println, random::random_u64, shared_consts::{DIRENT_DIR, DirChild, PATH_NAME_MAX, READABLE}, syscall::syscall_get_dir_children};
 
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main(args : Args<'_>) -> i32 {
@@ -9,6 +9,10 @@ pub extern "Rust" fn main(args : Args<'_>) -> i32 {
         Some(dir) => dir,
         None => ".",
     };
+
+    for _ in 0..15 {
+        println!("random : {}", random_u64());
+    }
 
     
     let current_dir = File::open(dir, READABLE).unwrap();
