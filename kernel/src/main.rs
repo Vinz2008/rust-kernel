@@ -74,6 +74,8 @@ entry_point!(kernel_main);
 
 // TODO : for security reasons, make the kernel a PIE ? (and the userspace programs ?) and enable KASLR ? (also ALSR for userspace programs ?)
 
+// TODO : add permissions for memory but also in userspace (not only just in page tables that only the kernel can modify), PKU feature
+
 // TODO : compile the kernel with BIND_NOW (does the bootloader support it ?)
 
 // TODO : add brk ASLR ?
