@@ -3,6 +3,7 @@
 
 use rt::{Args, println, syscall::{syscall_exec, syscall_wait_pid}};
 
+// TODO : maybe move this in the userspace folder to simplify things
 
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main(_args : Args<'_>) -> i32 {

@@ -1,6 +1,6 @@
 use x86_64::{VirtAddr, structures::paging::{Page, Size4KiB}};
 
-use crate::{allocator::map_page_at_in, elf::elf_to_page_permission, process::Process};
+use crate::{elf::elf_to_page_permission, paging::map_page_at_in, process::Process};
 
 pub const USER_STACK_TOP: usize = 0x0000_7fff_ffff_f000;
 pub const USER_STACK_SIZE: usize = 1024 * 1024; // 1MiB

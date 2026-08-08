@@ -1,10 +1,10 @@
-use core::{cell::UnsafeCell, ptr::{read_volatile, write_volatile}, sync::atomic::{AtomicBool, Ordering}};
+use core::{cell::UnsafeCell, ptr::{read_volatile, write_volatile}};
 
 use acpi::{AcpiError, AcpiTables, platform::{AcpiPlatform, InterruptModel, interrupt::Apic}};
 use spin::{Mutex, Once};
 use x86_64::{VirtAddr, instructions::{interrupts::without_interrupts, port::Port}, registers::model_specific::{ApicBase, ApicBaseFlags}};
 
-use crate::{acpi::MapHandler, interrupts::InterruptIndex, paging::PHYSICAL_MEMORY_OFFSET, pic, serial_println};
+use crate::{acpi::MapHandler, interrupts::InterruptIndex, paging::PHYSICAL_MEMORY_OFFSET, serial_println};
 
 #[repr(transparent)]
 struct MmioRegister {

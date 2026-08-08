@@ -1,9 +1,9 @@
 use core::{cmp::min, ptr};
 
 use elf::{ElfBytes, ParseError, abi::PF_X, endian::AnyEndian, segment::ProgramHeader};
-use x86_64::{VirtAddr, structures::paging::{Page, PageSize, PageTableFlags, Size4KiB, mapper::MapToError}};
+use x86_64::{VirtAddr, align_down, structures::paging::{OffsetPageTable, Page, PageSize, PageTable, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::map_page_at_in, paging::{PHYSICAL_MEMORY_OFFSET, translate_addr_in}, process::{ElfMemRegion, Process}, serial_println, userspace::map_userspace_stack};
+use crate::{paging::{PHYSICAL_MEMORY_OFFSET, get_page_flags_in, map_page_at_in, set_page_flags_in, translate_addr_in}, process::{ElfMemRegion, Process}, serial_println, userspace::map_userspace_stack};
 
 
 #[derive(Debug)]
@@ -15,8 +15,10 @@ pub enum ElfError {
     SegmentTableNotFound,
     TranslatePhysErr,
     InvalidElf,
+    RelroErr,
     ExecutableStackUnsupported,
     WriteExecutableSection,
+    InvalidElfVirtAddr(VirtAddr),
 }
 
 impl From<ParseError> for ElfError {
@@ -41,6 +43,16 @@ pub fn elf_to_page_permission(elf_flags : u32) -> Option<PageTableFlags> {
     Some(flags)
 }
 
+const ELF_MEM_REGION_START : u64 = 0x0000_0000_0020_0000;
+const ELF_MEM_REGION_END : u64 = 0x0000_0000_4000_0000;
+
+fn validate_elf_virt_addr(virt_addr : VirtAddr) -> Result<(), ElfError>{
+    if !(ELF_MEM_REGION_START..ELF_MEM_REGION_END).contains(&virt_addr.as_u64()){
+        return Err(ElfError::InvalidElfVirtAddr(virt_addr));
+    }
+    Ok(())
+}
+
 fn load_segment(content: &[u8], process : &mut Process, prog_header : &ProgramHeader) -> Result<(), ElfError> {
     let virt_addr = prog_header.p_vaddr;
     let memory_size = prog_header.p_memsz as usize;
@@ -55,10 +67,11 @@ fn load_segment(content: &[u8], process : &mut Process, prog_header : &ProgramHe
         return Ok(());
     }
 
-    // TODO : validate the offset (to only load in valid parts)
-
     let start = VirtAddr::new(virt_addr);
     let end = VirtAddr::new(virt_addr + memory_size as u64 - 1);
+
+    validate_elf_virt_addr(start)?;
+    validate_elf_virt_addr(end)?;
 
     let start_page = Page::<Size4KiB>::containing_address(start);
     let end_page = Page::<Size4KiB>::containing_address(end);
@@ -117,6 +130,33 @@ fn load_segment(content: &[u8], process : &mut Process, prog_header : &ProgramHe
     Ok(())
 }
 
+fn apply_relro(process: &mut Process, addr : u64, size : u64) -> Result<(), ElfError>{
+    let end = addr.checked_add(size).ok_or(ElfError::RelroErr)?;
+    let protect_start = align_down(addr, 4096);
+    let protect_end   = align_down(end, 4096);
+
+    if protect_start == protect_end {
+        return Ok(());
+    }
+    let start_page = Page::<Size4KiB>::from_start_address(VirtAddr::new(protect_start)).map_err(|_| ElfError::RelroErr)?;
+    let end_page = Page::<Size4KiB>::from_start_address(VirtAddr::new(protect_end)).map_err(|_| ElfError::RelroErr)?;
+
+    let phys_offset = PHYSICAL_MEMORY_OFFSET;
+    let page_table_phys = process.page_table_phys.start_address();
+    let virt = phys_offset + page_table_phys.as_u64();
+    let page_table_ptr: *mut PageTable = virt.as_mut_ptr();
+    let page_table = unsafe { &mut *page_table_ptr };
+    let mut mapper = unsafe { OffsetPageTable::new(page_table, phys_offset) };
+
+    for page in Page::range(start_page, end_page) {
+        let mut flags= get_page_flags_in(&mut mapper, page.start_address()).ok_or(ElfError::RelroErr)?;
+        flags.remove(PageTableFlags::WRITABLE);
+        set_page_flags_in(&mut mapper, page.start_address(), flags).ignore();
+    }
+
+    Ok(())
+}
+
 pub fn load_elf<'a>(content : &'a [u8], process : &mut Process) -> Result<ElfBytes<'a, AnyEndian>, ElfError> {
     let file = ElfBytes::<AnyEndian>::minimal_parse(content)?;
 
@@ -145,10 +185,19 @@ pub fn load_elf<'a>(content : &'a [u8], process : &mut Process) -> Result<ElfByt
                     return Err(ElfError::ExecutableStackUnsupported);
                 }
             }
-            // TODO : really support PT_GNU_RELRO, which says which segment should become read only after writing its content 
-            elf::abi::PT_GNU_RELRO | elf::abi::PT_PHDR  => {},
+            elf::abi::PT_GNU_RELRO | elf::abi::PT_PHDR => {},
             elf::abi::PT_INTERP => return Err(ElfError::UnsupportedElfType), // dynamic exe unsupported
             p_type => serial_println!("unknown p_type : {}", p_type), // TODO : reject unsupported sections
+        }
+    }
+
+    // add here the functionnalities that override things, for relocations, dynamic loading, that then the permissions will be fixed by apply_relro
+
+    for prog_header in file.segments().ok_or(ElfError::SegmentTableNotFound)? {
+        if prog_header.p_type == elf::abi::PT_GNU_RELRO {
+            validate_elf_virt_addr(VirtAddr::new(prog_header.p_vaddr))?;
+            validate_elf_virt_addr(VirtAddr::new(prog_header.p_vaddr + prog_header.p_memsz - 1))?;
+            apply_relro(process, prog_header.p_vaddr, prog_header.p_memsz)?;
         }
     }
 
