@@ -4,7 +4,7 @@ use pc_keyboard::{DecodedKey, HandleControl, KeyCode, KeyState, PS2Keyboard, Sca
 use spin::Mutex;
 use x86_64::{PrivilegeLevel, VirtAddr, instructions::port::Port, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
-use crate::{apic::{HAS_ENABLED_APIC, LOCAL_APIC}, backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, process::Pid, ringbuf::RingBuf, scheduler::{SCHEDULER, kill_current_and_schedule, schedule}, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
+use crate::{apic::LOCAL_APIC, backtrace::Backtrace, gdt, pic::{PIC_1_OFFSET, PICS}, process::Pid, ringbuf::RingBuf, scheduler::{SCHEDULER, kill_current_and_schedule, schedule}, serial::SERIAL1, serial_println, syscall::syscall_interrupt_stub, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -28,6 +28,7 @@ lazy_static! {
         }
         idt[InterruptIndex::Keyboard as u8].set_handler_fn(keyboard_interrupt_handler);
 
+        // TODO : removr this ?
         unsafe {
             idt[InterruptIndex::Syscall as u8].set_handler_addr(VirtAddr::new(syscall_interrupt_stub as *const () as u64)).set_privilege_level(PrivilegeLevel::Ring3).disable_interrupts(false);
         }
@@ -38,15 +39,17 @@ lazy_static! {
     };
 }
 
+// TODO : remove the interrupt_idx arg
 pub fn end_of_interrupt(interrupt_idx : InterruptIndex){
-    let has_enabled_apic = HAS_ENABLED_APIC.load(Ordering::Relaxed);
+    LOCAL_APIC.get().unwrap().lock().end_of_interrupt();
+    /*let has_enabled_apic = HAS_ENABLED_APIC.load(Ordering::Relaxed);
     if has_enabled_apic {
         LOCAL_APIC.get().unwrap().lock().end_of_interrupt();
     } else {
         unsafe {
             PICS.lock().notify_end_of_interrupt(interrupt_idx as u8);
         }
-    }
+    }*/
 }
 
 pub fn init_idt() {

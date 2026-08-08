@@ -2,7 +2,7 @@ use core::{cell::UnsafeCell, ptr::{read_volatile, write_volatile}, sync::atomic:
 
 use acpi::{AcpiError, AcpiTables, platform::{AcpiPlatform, InterruptModel, interrupt::Apic}};
 use spin::{Mutex, Once};
-use x86_64::{VirtAddr, instructions::interrupts::without_interrupts, registers::model_specific::{ApicBase, ApicBaseFlags}};
+use x86_64::{VirtAddr, instructions::{interrupts::without_interrupts, port::Port}, registers::model_specific::{ApicBase, ApicBaseFlags}};
 
 use crate::{acpi::MapHandler, interrupts::InterruptIndex, paging::PHYSICAL_MEMORY_OFFSET, pic, serial_println};
 
@@ -109,6 +109,63 @@ const MASKED: u32 = 1 << 16;
 const LAPIC_ENABLE: u32 = 1 << 8;
 const SPURIOUS_VECTOR: u8 = 0xff;
 
+const TIMER_PERIODIC: u32 = 1 << 17;
+
+// TODO : change this
+// Divide configuration encoding:
+// 0b0011 = divide by 16
+const TIMER_DIVIDE_16: u32 = 0b0011;
+
+// for now, timer 100 Hz
+const TIMER_HZ: u64 = 100;
+
+const PIT_FREQUENCY: u64 = 1_193_182;
+
+struct PitWait {
+    old_control : u8,
+}
+
+fn prepare_pit_wait_ms(ms: u64) -> PitWait {
+    let count = PIT_FREQUENCY * ms / 1000;
+
+    debug_assert!(count > 0 && count <= u16::MAX as u64);
+
+    unsafe {
+        let mut command = Port::<u8>::new(0x43);
+        let mut channel2 = Port::<u8>::new(0x42);
+        let mut control = Port::<u8>::new(0x61);
+
+        let old_control = control.read();
+
+        // Gate LOW: channel 2 not running yet.
+        // Speaker output also disabled.
+        control.write(old_control & !0b11);
+        
+        // channel 2, low+high bytes, mode 0, binary
+        command.write(0b1011_0000);
+
+        let count = count as u16;
+
+        channel2.write(count as u8);
+        channel2.write((count >> 8) as u8);
+        
+        PitWait { old_control }
+    }
+}
+
+#[inline(always)]
+fn pit_wait_ms(pit_wait : PitWait) {
+    unsafe {
+        let mut control = Port::<u8>::new(0x61);
+        let value = control.read();
+        control.write((value | 0x01) & !0x02);
+        while control.read() & (1 << 5) == 0 {
+            core::hint::spin_loop();
+        }
+        control.write(pit_wait.old_control);
+    }
+}
+
 impl LocalApic {
     fn get_regs(&mut self) -> &mut LocalApicRegisters {
         unsafe {
@@ -120,12 +177,27 @@ impl LocalApic {
         self.get_regs().end_of_interrupt();
     }
 
+    fn start_timer(&mut self, initial_count : u32){
+        let regs = self.get_regs();
+
+        // stop timer
+        regs.timer_lvt.write(InterruptIndex::Timer as u32 | MASKED);
+
+        // APIC timer clock divided by 16, changes how fast it ticks
+        regs.divide_configuration.write(TIMER_DIVIDE_16);
+
+        regs.timer_lvt.write(InterruptIndex::Timer as u32 | TIMER_PERIODIC);
+
+        // this starts the timer, initial count = nb of tick before interrupt
+        regs.initial_count.write(initial_count);
+    }
+
     fn enable(&mut self){
+
         let regs = self.get_regs();
         
         regs.task_priority.write(0);
-
-        regs.timer_lvt.write(MASKED); // TODO : instead of routing the pic timer to the normal pit, use the real apic timer (need LAPIC time regs)
+            
         regs.thermal_lvt.write(MASKED); // TODO ?
         regs.performance_lvt.write(MASKED); // TODO ?
         regs.lint0_lvt.write(MASKED); // TODO ?
@@ -134,7 +206,25 @@ impl LocalApic {
 
         regs.spurious_interrupt_vector.write(LAPIC_ENABLE | SPURIOUS_VECTOR as u32);
 
-        let _ = regs.id.read();
+
+        //regs.timer_lvt.write(MASKED); // TODO : instead of routing the pic timer to the normal pit, use the real apic timer (need LAPIC time regs)
+        let pit_wait = prepare_pit_wait_ms(50);
+
+        regs.timer_lvt.write(InterruptIndex::Timer as u32 | MASKED);
+
+        regs.divide_configuration.write(TIMER_DIVIDE_16);
+
+        // starts counting down
+        regs.initial_count.write(u32::MAX);
+
+        pit_wait_ms(pit_wait);
+    
+        let current = regs.current_count.read();
+        let ticks_50ms = u32::MAX - current;
+        let initial_count = ticks_50ms / 5; // 10ms = 100Hz
+        self.start_timer(initial_count);
+
+        let _ = self.get_regs().id.read();
     }
 }
 
@@ -268,14 +358,14 @@ fn _init_apic(acpi_tables : AcpiTables<MapHandler>) -> Result<(), AcpiError> {
         io_apic_lock.route(gsi_keyboard, InterruptIndex::Keyboard as u8, local_apid_id);
     }
 
-    unsafe { pic::PICS.lock().disable() };
-    HAS_ENABLED_APIC.store(true, Ordering::Relaxed);
+    //unsafe { pic::PICS.lock().disable() };
+    //HAS_ENABLED_APIC.store(true, Ordering::Relaxed);
 
     Ok(())
 }
 
 // TODO : remove this after removing PIC support ?
-pub static HAS_ENABLED_APIC : AtomicBool = AtomicBool::new(false);
+//pub static HAS_ENABLED_APIC : AtomicBool = AtomicBool::new(false);
 
 pub fn init_apic(acpi_tables : AcpiTables<MapHandler>) -> Result<(), AcpiError> {
     // TODO : only do it if supported

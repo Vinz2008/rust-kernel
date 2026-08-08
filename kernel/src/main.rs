@@ -112,7 +112,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
 
     // TODO : remove pic initialization in the future (just disable it using the .lock().disable(), is small enough that I can just implement it without deps)
-    unsafe { pic::PICS.lock().initialize() };
+    //unsafe { pic::PICS.lock().initialize() };
 
     enable_security_features();
 
