@@ -74,8 +74,10 @@ pub extern "Rust" fn main(_args : Args<'_>) -> i32 {
                 cli.clear();
             },
             BACKSPACE => {
-                cli.pop();
-                print!("{}", BACKSPACE);
+                if !cli.is_empty(){
+                    cli.pop();
+                    print!("{}", BACKSPACE);
+                }
             }
             _ => {
                 cli.push(c);
