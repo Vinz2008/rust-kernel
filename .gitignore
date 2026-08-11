@@ -6,3 +6,4 @@ initrd/bin/ls
 initrd/bin/shutdown
 initrd/bin/touch
 initrd/bin/cat
+initrd/bin/reboot
