@@ -3,6 +3,8 @@
 
 use rt::{self as _, Args, alloc::{string::String, vec}, print, println, shared_consts::BACKSPACE, syscall::{syscall_change_cwd, syscall_exec, syscall_get_char, syscall_get_cwd, syscall_stat, syscall_wait_pid}};
 
+// TODO : add a separate command for clear (use a separate exe ?), just prints a code to be handled by the cli driver
+
 fn handle_cli(cli : &str){
     let mut cli_split = cli.split_whitespace(); // TODO : better parsing, for ex with quotess
     let command_name = cli_split.next();

@@ -5,6 +5,8 @@ use shared_consts::{CREATE_FILE, Fd, StatMode};
 
 use crate::syscall::{syscall_close, syscall_fstat, syscall_open, syscall_read, syscall_write};
 
+// TODO : add a path abstraction ? or stay as now, with every path as utf8
+
 pub enum FileError {
     FileExpected,
     FdNotFound,
