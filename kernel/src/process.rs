@@ -412,7 +412,6 @@ impl Process {
 
         let stack_top = USER_STACK_TOP & !0xf; // 16 bytes align the stack, for syscall and iret
         let rsp = self.init_process_stack(stack_top, self.page_table_phys, args);
-        //let rsp = stack_top;
 
         let saved_regs = Registers {
             rip: entrypoint as u64,

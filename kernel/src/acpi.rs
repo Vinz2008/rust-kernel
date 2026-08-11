@@ -1,8 +1,9 @@
 use core::ptr::NonNull;
 
-use acpi::{AcpiError, AcpiTables, Handler, rsdp::Rsdp};
+use acpi::{AcpiError, AcpiTable, AcpiTables, Handler, platform::AcpiPlatform, rsdp::Rsdp, sdt::fadt::Fadt};
+use spin::Once;
 
-use crate::{paging::PHYSICAL_MEMORY_OFFSET};
+use crate::{paging::PHYSICAL_MEMORY_OFFSET, println};
 
 #[derive(Clone, Copy)]
 pub struct MapHandler;
@@ -131,10 +132,15 @@ impl Handler for MapHandler {
     }
 }
 
-pub fn init_acpi() -> Result<AcpiTables<MapHandler>, AcpiError> {
+pub static ACPI_PLATFORM : Once<AcpiPlatform<MapHandler>> = Once::new();
+
+pub fn init_acpi() -> Result<(), AcpiError> {
     let handler = MapHandler;
     let rdsp = unsafe { Rsdp::search_for_on_bios(handler)? };
     let acpi_tables = unsafe { AcpiTables::from_rsdp(handler, rdsp.physical_start)? };
-    
-    Ok(acpi_tables)
+    let acpi_platform = AcpiPlatform::new(acpi_tables, handler)?;
+
+    ACPI_PLATFORM.call_once(|| acpi_platform);
+
+    Ok(())
 }

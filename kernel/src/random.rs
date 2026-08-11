@@ -140,8 +140,6 @@ pub fn init_kernel_rng(){
     KERNEL_RNG.call_once(|| Mutex::new(kernel_rng));
 }
 
-// TODO : add syscall get_random
-
 pub fn random_bytes(out : &mut [u8]){
     KERNEL_RNG.get().unwrap().lock().fill(out);
 }

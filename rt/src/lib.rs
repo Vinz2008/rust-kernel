@@ -21,6 +21,7 @@ pub mod syscall;
 pub mod print;
 pub mod fs;
 pub mod random;
+pub mod power;
 
 unsafe extern "Rust" {
     fn main(args : Args<'_>) -> i32;

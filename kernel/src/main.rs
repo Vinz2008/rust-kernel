@@ -67,6 +67,7 @@ mod stack_chk;
 mod security;
 
 mod random;
+mod power;
 
 
 entry_point!(kernel_main);
@@ -122,13 +123,13 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     allocator::init_heap(mapper, boot_frame_allocator).expect("heap initialization failed");
 
-    let acpi_tables = init_acpi().unwrap();
+    init_acpi().unwrap();
 
     init_rtc();
 
     serial_println!("boot time : {}", BOOT_TIME.get().unwrap());
 
-    init_apic(acpi_tables).unwrap();
+    init_apic().unwrap();
 
     enable_syscall_and_int();
 

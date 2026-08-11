@@ -4,7 +4,7 @@ use acpi::{AcpiError, AcpiTables, platform::{AcpiPlatform, InterruptModel, inter
 use spin::{Mutex, Once};
 use x86_64::{VirtAddr, instructions::{interrupts::without_interrupts, port::Port}, registers::model_specific::{ApicBase, ApicBaseFlags}};
 
-use crate::{acpi::MapHandler, interrupts::InterruptIndex, paging::PHYSICAL_MEMORY_OFFSET, serial_println};
+use crate::{acpi::{ACPI_PLATFORM, MapHandler}, interrupts::InterruptIndex, paging::PHYSICAL_MEMORY_OFFSET, serial_println};
 
 #[repr(transparent)]
 struct MmioRegister {
@@ -279,13 +279,9 @@ fn irq_to_gsi(apic : &Apic, irq : u8) -> u32 {
         .unwrap_or(irq as u32)
 }
 
-fn _init_apic(acpi_tables : AcpiTables<MapHandler>) -> Result<(), AcpiError> {
-    
+fn _init_apic() -> Result<(), AcpiError> {
 
-    let handler = MapHandler;
-    let platform = AcpiPlatform::new(acpi_tables, handler)?;
-
-    let apic = match platform.interrupt_model {
+    let apic = match &ACPI_PLATFORM.get().ok_or(AcpiError::HostUnimplemented)?.interrupt_model {
         InterruptModel::Apic(apic) => apic,
         InterruptModel::Unknown => panic!("unknown interrupt model"),
         _ => unreachable!(),
@@ -352,7 +348,7 @@ fn _init_apic(acpi_tables : AcpiTables<MapHandler>) -> Result<(), AcpiError> {
 }
 
 
-pub fn init_apic(acpi_tables : AcpiTables<MapHandler>) -> Result<(), AcpiError> {
+pub fn init_apic() -> Result<(), AcpiError> {
     // TODO : only do it if supported
-    without_interrupts(|| _init_apic(acpi_tables))
+    without_interrupts(|| _init_apic())
 }

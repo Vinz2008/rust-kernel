@@ -1,59 +1,11 @@
 use core::{arch::naked_asm, ops::{ControlFlow, Deref, DerefMut}};
 
 use alloc::{slice, str, vec::Vec};
-use shared_consts::{Arg, CREATE_FILE, DirChild, Fd, READABLE, SHUTDOWN_SUCCESS, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_FSTAT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_GET_RANDOM, SYSCALL_OPEN, SYSCALL_READ, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_WRITE, Stat, StatMode, WRITABLE};
+use shared_consts::{Arg, CREATE_FILE, DirChild, Fd, READABLE, SHUTDOWN_REBOOT, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_FSTAT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_GET_RANDOM, SYSCALL_OPEN, SYSCALL_READ, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_WRITE, Stat, StatMode, WRITABLE};
 use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::serial_print_allocs_deallocs, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read, process_write}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table, get_page_flags_in, map_page_at_in}, process::{Pid, Process, cleanup_process_complete}, qemu::{self, QemuExitCode}, random::random_bytes, scheduler::{ReadyMode, SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::serial_print_allocs_deallocs, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read, process_write}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table, get_page_flags_in, map_page_at_in}, power::{reboot, shutdown}, process::{Pid, Process, cleanup_process_complete}, qemu::{self, QemuExitCode}, random::random_bytes, scheduler::{ReadyMode, SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
-
-// TODO : deprecate the interrupt side for syscalls (how ? should I ?)
-#[unsafe(naked)]
-pub unsafe extern "C" fn syscall_interrupt_stub() -> ! {
-    naked_asm!(
-        "
-        push rax
-        push rbx
-        push rcx
-        push rdx
-        push rsi
-        push rdi
-        push rbp
-        push r8
-        push r9
-        push r10
-        push r11
-        push r12
-        push r13
-        push r14
-        push r15
-
-        cld
-
-        mov rdi, rsp # put in rdi the stack pointer to have as arg the reg struct
-        call {handler}
-
-        pop r15
-        pop r14
-        pop r13
-        pop r12
-        pop r11
-        pop r10
-        pop r9
-        pop r8
-        pop rbp
-        pop rdi
-        pop rsi
-        pop rdx
-        pop rcx
-        pop rbx
-        pop rax
-
-        iretq
-        ",
-        handler = sym syscall_interrupt_handler,
-    )
-}
 
 const USER_CS: u64 = 0x23;
 const USER_SS: u64 = 0x1b;
@@ -296,7 +248,7 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
         let mut scheduler_lock = SCHEDULER.lock();
         let process = new_proc_pid.get_process_mut(&mut scheduler_lock.processes);
 
-        let elf = load_elf(&file_content, process).ok()?; // TODO : in case like this in syscalls, instead of destroying the error and returning a non specific error to syscall, print the syscall error (in serial ? stdout ?) and then return the None
+        let elf = load_elf(&file_content, process).ok()?; // TODO : in case like this in syscalls, instead of destroying the error and returning a non specific error to syscall, return the error (change abi ? how would it work ? maybe have a ptr, with a certain memory allocated that is the maximum size that can be used as an used for the error, use an enum and sizeof on it ?)
         let entrypoint = elf.ehdr.e_entry as usize;
         new_proc_pid.get_process_mut(&mut scheduler_lock.processes).init_process(entrypoint, &args_strings);
         scheduler_lock.make_runnable(new_proc_pid);
@@ -484,12 +436,11 @@ fn syscall_sbrk(regs : &mut SyscallRegs) -> Option<u64> {
 
 fn syscall_shutdown(regs : &mut SyscallRegs) -> ! {
     let flags = regs.get_arg(1);
-    let status = if (flags & SHUTDOWN_SUCCESS) != 0 {
-        QemuExitCode::Success
+    if (flags & SHUTDOWN_REBOOT) != 0 {
+        reboot()
     } else {
-        QemuExitCode::Failed
-    };
-    qemu::exit_qemu(status)
+        shutdown(flags)
+    }
 }
 
 fn syscall_change_cwd(regs : &mut SyscallRegs) -> Option<()> {

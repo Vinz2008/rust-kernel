@@ -6,7 +6,7 @@ members = [
     "rt",
     "userspace/cli",
     "userspace/ls", 
-    "shared_consts", "userspace/shutdown", "userspace/touch", "userspace/cat",
+    "shared_consts", "userspace/shutdown", "userspace/touch", "userspace/cat", "userspace/reboot",
 ]
 default-members = ["kernel"]
 exclude = [

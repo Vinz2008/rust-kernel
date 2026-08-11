@@ -66,6 +66,7 @@ pub const USER_HEAP_SIZE : usize = 1024 * 1024 * 1024; // 1 GiB
 // last bit is for success or failure
 pub const SHUTDOWN_SUCCESS : u64 = 0x1;
 pub const SHUTDOWN_FAILURE : u64 = 0x0;
+pub const SHUTDOWN_REBOOT : u64 = 0x2;
 
 #[repr(C)]
 pub struct Arg {

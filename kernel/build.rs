@@ -108,6 +108,7 @@ const USERSPACE_EXES : &[&str] = &[
     "cli",
     "ls",
     "shutdown",
+    "reboot",
     "touch",
     "cat",
 ];

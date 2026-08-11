@@ -60,6 +60,7 @@ fn handle_cli(cli : &str){
 
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main(_args : Args<'_>) -> i32 {
+    // TODO : fix the problem with writing being always at the end of the printing and not at the cursor position
     let mut cli = String::new();
     print!("> ");
 
