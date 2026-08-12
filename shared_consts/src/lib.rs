@@ -58,7 +58,7 @@ pub struct DirChild {
 }
 
 pub const PATH_MAX : usize = 4096; // TODO : add dynamic memory in userspace to use this less
-pub const PATH_NAME_MAX : usize = 256;
+pub const PATH_NAME_MAX : usize = 255;
 
 pub const USER_HEAP_START : usize = 0x0000_0000_4000_0000;
 pub const USER_HEAP_SIZE : usize = 1024 * 1024 * 1024; // 1 GiB

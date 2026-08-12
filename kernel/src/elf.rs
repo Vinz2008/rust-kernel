@@ -53,6 +53,8 @@ fn validate_elf_virt_addr(virt_addr : VirtAddr) -> Result<(), ElfError>{
     Ok(())
 }
 
+// TODO : add a validate_elf_virt_addr_is_mapped to check if the address is mapped (obviously need to check this after mapping, that's why it needs to be a separate function)
+
 fn load_segment(content: &[u8], process : &mut Process, prog_header : &ProgramHeader) -> Result<(), ElfError> {
     let virt_addr = prog_header.p_vaddr;
     let memory_size = prog_header.p_memsz as usize;
@@ -205,7 +207,7 @@ pub fn load_elf<'a>(content : &'a [u8], process : &mut Process) -> Result<ElfByt
 
     map_userspace_stack(process, stack_flags);
 
-    // TODO : validate that e_entry is in a mapped region of memory
+    validate_elf_virt_addr(VirtAddr::new(file.ehdr.e_entry))?;
     
     Ok(file)
 }

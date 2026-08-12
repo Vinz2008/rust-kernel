@@ -156,6 +156,9 @@ fn check_ptr(ptr : usize, len : usize, is_write : bool) -> bool {
         Some(end) => end,
         None => return false,
     };
+    if len == 0 {
+        return true;
+    }
     let start_page = Page::<Size4KiB>::containing_address(VirtAddr::new(ptr as u64));
     let end_page = Page::<Size4KiB>::containing_address(VirtAddr::new((end-1) as u64));
 
