@@ -99,11 +99,12 @@ pub struct TarInitrd<'a> {
 }
 
 fn get_headers(content : &[u8]) -> Result<Vec<&TarHeader>, TarError> {
-    // TODO : maybe reserve the size of the vec to not waste memory ? (would need to do 2 times traversal, is it a good idea ?)
     let mut headers = Vec::new();
     let mut header_ptr = content.as_ptr();
+    let end_addr = content.as_ptr_range().end as usize;
     loop {
-        if header_ptr as usize + 512 >= content.as_ptr_range().end as usize {
+        let header_end = (header_ptr as usize).checked_add(512).ok_or(TarError::NoEnd)?;
+        if header_end > end_addr {
             return Err(TarError::NoEnd);
         }
         let header = unsafe { &*(header_ptr as *const TarHeader) };
@@ -111,14 +112,18 @@ fn get_headers(content : &[u8]) -> Result<Vec<&TarHeader>, TarError> {
             break;
         }
         let size = parse_octal(&header.size)? as usize;
-        headers.push(header);
-        unsafe {
-            header_ptr = header_ptr.add(((size/512) + 1) * 512);
+        let padded_size = size.div_ceil(512).checked_mul(512).ok_or(TarError::NoEnd)?;
+        let next_addr = header_end.checked_add(padded_size).ok_or(TarError::NoEnd)?;
+
+        if next_addr > end_addr {
+            return Err(TarError::NoEnd);
         }
-        if !size.is_multiple_of(512) {
-            unsafe {
-                header_ptr = header_ptr.add(512);
-            }
+
+        headers.push(header);
+
+        let advance = next_addr - (header_ptr as usize);
+        unsafe {
+            header_ptr = header_ptr.add(advance);
         }
     }
     Ok(headers)
@@ -140,33 +145,30 @@ pub const INITRD_BYTES : &[u8] = include_bytes!("../initrd.tar");
 
 pub fn load_initrd_init() -> ! {
     let init_path = "/init";
-    let (entrypoint, process_pid) = {
+    let process_pid = {
         /*let tar_initrd = TAR_INITRD.lock();
         for (idx, &file) in tar_initrd.headers.iter().enumerate() {
             serial_println!("file {} {} {}", idx, file.get_filename().unwrap(), file.size().unwrap());
         }*/
+        let mut scheduler_lock = SCHEDULER.lock();
         
         let init_node = get_inode(init_path).unwrap();
         let init_content = init_node.read_entire_file_in_mem().unwrap();
         
 
-        let process_pid = Process::empty_process("/".to_string());
+        let process_pid = Process::empty_process("/".to_string(), &mut scheduler_lock);
 
 
         let elf = {
-            let mut scheduler_lock = SCHEDULER.lock();
             load_elf(&init_content, process_pid.get_process_mut(&mut scheduler_lock.processes))
         }.expect("failed loading init");
-        
-        (elf.ehdr.e_entry, process_pid)
-    };
-    
 
-    {
-        let mut scheduler_lock = SCHEDULER.lock();
+        let entrypoint = elf.ehdr.e_entry;
+        
         let process = process_pid.get_process_mut(&mut scheduler_lock.processes);
         let args = &[init_path];
         process.init_process(entrypoint as usize, args);
+        process_pid
     };
     
     start_first_process(process_pid)

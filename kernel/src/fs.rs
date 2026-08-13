@@ -1,6 +1,6 @@
 use core::{cmp, sync::atomic::{AtomicU64, Ordering}};
 
-use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::{Vec}};
 use shared_consts::{DIRENT_DEVICE, DIRENT_DIR, DIRENT_FILE, DirChild, Fd, PATH_NAME_MAX, Stat, StatMode};
 use spin::mutex::Mutex;
 
@@ -358,7 +358,7 @@ impl Inode {
             StatMode::File { size } => size,
             _ => return Err(FileError::FileExpected { path: Box::default() }), // TODO : put Inode instead ?
         };
-        let mut content = Vec::with_capacity(size);
+        let mut content = alloc::vec![0; size];
         let read_amount = self.read_at(0, &mut content)?; // TODO : check wrote ? or retry if not everything read ?
         Ok(Cow::Owned(content))
     }

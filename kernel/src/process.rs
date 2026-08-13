@@ -5,7 +5,7 @@ use shared_consts::{Fd, USER_HEAP_SIZE, USER_HEAP_START};
 use spin::Mutex;
 use x86_64::{PhysAddr, VirtAddr, instructions::interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
-use crate::{allocator::{allocate_userspace_level_4_table, deallocate_userspace_page_tables, deallocate_virtual_page}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, map_page_at_in, map_page_phys_at_in, translate_addr_in}, scheduler::{KernelContext, ReadyMode, SCHEDULER, SchedulerState, idle_main, with_scheduler_no_int}, serial_println, sse::{DEFAULT_FXSTATE, FxState}, userspace::{USER_STACK_SIZE, USER_STACK_TOP}, utils::Registers};
+use crate::{allocator::{allocate_userspace_level_4_table, deallocate_userspace_page_tables, deallocate_virtual_page}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, map_page_at_in, map_page_phys_at_in, translate_addr_in}, scheduler::{KernelContext, ReadyMode, SCHEDULER, Scheduler, SchedulerState, idle_main, with_scheduler_no_int}, serial_println, sse::{DEFAULT_FXSTATE, FxState}, userspace::{USER_STACK_SIZE, USER_STACK_TOP}, utils::Registers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pid(pub NonZero<usize>);
@@ -19,7 +19,7 @@ impl Pid {
     }
 
     pub fn get_process(self, processes : &[Box<Process>]) -> &Process {
-        processes.get(self.0.get()-1).unwrap()
+        processes.get(self.0.get()-1).unwrap() // TODO : not unwrap and return Option<&Process> ? or just keep some checks in the syscalls ?
     }
     
     pub fn get_process_mut(self, processes : &mut [Box<Process>]) -> &mut Process {
@@ -224,6 +224,18 @@ pub fn cleanup_process_complete(process : &Process){
     serial_println!("after PML4 cleanup");
 }
 
+// used to destroy completely a process because an error occured, for ex a invalid elf file during loading
+pub fn destroy_process_because_err(scheduler : &mut Scheduler, new_proc_pid : Pid){
+    if let Some(parent) = new_proc_pid.get_process(&scheduler.processes).parent {
+        let child_idx = parent.get_process(&scheduler.processes).children.iter().position(|&pid| pid == new_proc_pid).unwrap();
+        parent.get_process_mut(&mut scheduler.processes).children.swap_remove(child_idx);
+    }
+    let process = new_proc_pid.get_process(&scheduler.processes);
+    cleanup_process_mem_soft(process);
+    cleanup_process_complete(process);
+    scheduler.mark_dead(new_proc_pid);
+}
+
 fn init_fd_list() -> Result<Vec<Option<Arc<OpenedFile>>>, FileError> {
     let mut v = Vec::with_capacity(1);
 
@@ -264,46 +276,44 @@ impl Process {
         Some(())
     }
 
-    pub fn empty_process(cwd_path : String) -> Pid {
-        with_scheduler_no_int(|scheduler|{
-
-            let page_table_phys = allocate_userspace_level_4_table();
+    pub fn empty_process(cwd_path : String, scheduler : &mut Scheduler) -> Pid {
+        debug_assert!(!interrupts::are_enabled());
+        let page_table_phys = allocate_userspace_level_4_table();
             
-            let parent_pid = scheduler.current_process;
+        let parent_pid = scheduler.current_process;
 
-            map_page_phys_at_in(page_table_phys.start_address(), PhysFrame::containing_address(PhysAddr::new(0xb8000)), VirtAddr::new(0xb8000), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE).unwrap().flush(); // TODO : should I realy unwrap ?
-            let new_process_pid = scheduler.add_process(Process { 
-                pid: Pid(NonZero::new(usize::MAX).unwrap()), // will be replaced in add_process
-                children: Vec::new(),
-                parent: parent_pid,
-                kernel_stack_top: VirtAddr::new(0), // is replaced just after 
-                page_table_phys,
-                state: SchedulerState::Loading,
-                process_kind: ProcessKind::User,
-                saved_regs: Registers::default(),
-                kernel_context: KernelContext::default(),
-                fxstate: DEFAULT_FXSTATE.get().unwrap().clone(),
-                cwd_path,
-                fd_list: init_fd_list().unwrap(), // TODO : better error handling (either cache the stdout to not have to search it, or return a result from this fun)
-                free_fd_nb: 0,
-                heap_start: VirtAddr::new(USER_HEAP_START as u64),
-                heap_break: VirtAddr::new(USER_HEAP_START as u64),
-                heap_max: VirtAddr::new((USER_HEAP_START + USER_HEAP_SIZE) as u64),
-                elf_regions: Vec::new(),
-            });
+        map_page_phys_at_in(page_table_phys.start_address(), PhysFrame::containing_address(PhysAddr::new(0xb8000)), VirtAddr::new(0xb8000), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE).unwrap().flush(); // TODO : should I realy unwrap ?
+        let new_process_pid = scheduler.add_process(Process { 
+            pid: Pid(NonZero::new(usize::MAX).unwrap()), // will be replaced in add_process
+            children: Vec::new(),
+            parent: parent_pid,
+            kernel_stack_top: VirtAddr::new(0), // is replaced just after 
+            page_table_phys,
+            state: SchedulerState::Loading,
+            process_kind: ProcessKind::User,
+            saved_regs: Registers::default(),
+            kernel_context: KernelContext::default(),
+            fxstate: DEFAULT_FXSTATE.get().unwrap().clone(),
+            cwd_path,
+            fd_list: init_fd_list().unwrap(), // TODO : better error handling (either cache the stdout to not have to search it, or return a result from this fun)
+            free_fd_nb: 0,
+            heap_start: VirtAddr::new(USER_HEAP_START as u64),
+            heap_break: VirtAddr::new(USER_HEAP_START as u64),
+            heap_max: VirtAddr::new((USER_HEAP_START + USER_HEAP_SIZE) as u64),
+            elf_regions: Vec::new(),
+        });
 
-            let new_process_idx = new_process_pid.0.get() - 1;
+        let new_process_idx = new_process_pid.0.get() - 1;
 
-            let stack_end = allocate_kernel_stack(new_process_idx, page_table_phys);
+        let stack_end = allocate_kernel_stack(new_process_idx, page_table_phys);
 
-            new_process_pid.get_process_mut(&mut scheduler.processes).kernel_stack_top = VirtAddr::new(stack_end);
+        new_process_pid.get_process_mut(&mut scheduler.processes).kernel_stack_top = VirtAddr::new(stack_end);
 
-            if let Some(parent_pid) = parent_pid {
-                parent_pid.get_process_mut(&mut scheduler.processes).children.push(new_process_pid);
-            }
+        if let Some(parent_pid) = parent_pid {
+            parent_pid.get_process_mut(&mut scheduler.processes).children.push(new_process_pid);
+        }
 
-            new_process_pid
-        })
+        new_process_pid
         
     }
 

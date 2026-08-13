@@ -1,10 +1,10 @@
-use core::{arch::naked_asm, ops::{ControlFlow, Deref, DerefMut}};
+use core::{arch::naked_asm, ops::{ControlFlow, Deref, DerefMut}, ptr};
 
 use alloc::{slice, str, vec::Vec};
 use shared_consts::{Arg, CREATE_FILE, DirChild, Fd, READABLE, SHUTDOWN_REBOOT, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_FSTAT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_GET_RANDOM, SYSCALL_OPEN, SYSCALL_READ, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_WRITE, Stat, StatMode, WRITABLE};
-use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
+use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageSize, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::serial_print_allocs_deallocs, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read, process_write}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table, get_page_flags_in, map_page_at_in}, power::{reboot, shutdown}, process::{Pid, Process, cleanup_process_complete}, qemu::{self, QemuExitCode}, random::random_bytes, scheduler::{ReadyMode, SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::serial_print_allocs_deallocs, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read, process_write}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table, get_page_flags_in, map_page_at_in, translate_addr_in}, power::{reboot, shutdown}, process::{Pid, Process, cleanup_process_complete, cleanup_process_mem_soft, destroy_process_because_err}, qemu::{self, QemuExitCode}, random::random_bytes, scheduler::{ReadyMode, SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
 
 
 const USER_CS: u64 = 0x23;
@@ -150,7 +150,7 @@ fn syscall_exit(regs : &mut SyscallRegs) -> ! {
 }
 
 
-// TODO : look at all the memory regions, and also a check to have kernel memory forbidden (for ex memory > 0xXXXXX)
+// TODO : look at all the memory regions, and also a check to have kernel memory forbidden (for ex memory > 0xXXXXX) (or do the reverse, put only the user accessible range ? and not too low, for ex NULL ?)
 fn check_ptr(ptr : usize, len : usize, is_write : bool) -> bool {
     let end = match ptr.checked_add(len){
         Some(end) => end,
@@ -225,6 +225,7 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
 
     let path = create_str(path_ptr, path_len as usize)?;
 
+    // TODO : merge this block with_scheduler_no_int with the one next ?
     let canonicalized_path = with_scheduler_no_int(|scheduler|{
         let current_cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes).cwd_path;
         canonicalize_path(path, current_cwd)
@@ -240,29 +241,31 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
     let inode = get_inode(&canonicalized_path).ok()?;
     let file_content = inode.read_entire_file_in_mem().ok()?;
 
-    let new_proc_pid = interrupts::without_interrupts(|| {
+    let new_proc_pid = with_scheduler_no_int(|scheduler| {
         let current_cwd_path = {
-            let scheduler_lock  = SCHEDULER.lock();
-            let current_proc = scheduler_lock.current_process.unwrap().get_process(&scheduler_lock.processes);
+            let current_proc = scheduler.current_process.unwrap().get_process(&scheduler.processes);
             let current_cwd_path = current_proc.cwd_path.clone();
             current_cwd_path
         };
-        let new_proc_pid = Process::empty_process(current_cwd_path);
-        let mut scheduler_lock = SCHEDULER.lock();
-        let process = new_proc_pid.get_process_mut(&mut scheduler_lock.processes);
+        let new_proc_pid = Process::empty_process(current_cwd_path, scheduler);
+        let process = new_proc_pid.get_process_mut(&mut scheduler.processes);
 
-        let elf = load_elf(&file_content, process).ok()?; // TODO : in case like this in syscalls, instead of destroying the error and returning a non specific error to syscall, return the error (change abi ? how would it work ? maybe have a ptr, with a certain memory allocated that is the maximum size that can be used as an used for the error, use an enum and sizeof on it ?)
+        let elf = match load_elf(&file_content, process).ok(){  // TODO : in case like this in syscalls, instead of destroying the error and returning a non specific error to syscall, return the error (change abi ? how would it work ? maybe have a ptr, with a certain memory allocated that is the maximum size that can be used as an used for the error, use an enum and sizeof on it ?)
+            Some(elf) => elf,
+            None => {
+                destroy_process_because_err(scheduler, new_proc_pid);
+                return None;
+            },
+        };
         let entrypoint = elf.ehdr.e_entry as usize;
-        new_proc_pid.get_process_mut(&mut scheduler_lock.processes).init_process(entrypoint, &args_strings);
-        scheduler_lock.make_runnable(new_proc_pid);
+        new_proc_pid.get_process_mut(&mut scheduler.processes).init_process(entrypoint, &args_strings);
+        scheduler.make_runnable(new_proc_pid);
         Some(new_proc_pid)
     })?;
 
     serial_print_allocs_deallocs("after exec");
 
     Some(new_proc_pid.0.get() as u64)
-
-    //switch_to_userspace(entrypoint, USER_STACK_TOP, kernel_stack_top, user_page_table)
 }
 
 // TODO : remove this and just use read syscall on stdin (after adding read and stdin)
@@ -306,6 +309,10 @@ fn syscall_wait_pid(regs : &mut SyscallRegs) -> Option<()> {
 
     loop {
         let control_flow = with_scheduler_no_int(|scheduler|{
+            if scheduler.processes.len() < waited_pid.0.get() {
+                return ControlFlow::Break(None);
+            }
+            
             let current_pid = scheduler.current_process.unwrap();
 
             if !current_pid.get_process(&scheduler.processes).children.contains(&waited_pid) {
@@ -426,6 +433,12 @@ fn syscall_sbrk(regs : &mut SyscallRegs) -> Option<u64> {
             match map_page_at_in(page_table_phys.start_address(), page.start_address(), flags){
                 Ok(flush) => {
                     flush.flush();
+                    // TODO : why not make it also return the phys frame to not have to translate the addr after
+                    let page_phys = unsafe { translate_addr_in(page_table_phys, page.start_address()) }.unwrap();
+                    let page_phys_virt = PHYSICAL_MEMORY_OFFSET + page_phys.as_u64();
+                    unsafe {
+                        ptr::write_bytes(page_phys_virt.as_mut_ptr::<u8>(), 0, page.size() as usize);
+                    }
                 },
                 Err(MapToError::PageAlreadyMapped(_)) => {},
                 Err(e) => panic!("error when mapping user heap pages in sbrk : {:?}", e),

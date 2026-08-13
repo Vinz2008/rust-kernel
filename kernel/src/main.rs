@@ -14,7 +14,7 @@ extern crate alloc;
 
 use bootloader::{BootInfo, entry_point};
 
-use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall_and_int, process::Process, random::init_kernel_rng, rtc::{BOOT_TIME, init_rtc}, security::enable_security_features, sse::init_fpu_template, utils::hlt_loop};
+use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall, process::Process, random::init_kernel_rng, rtc::{BOOT_TIME, init_rtc}, security::enable_security_features, sse::init_fpu_template, utils::hlt_loop};
 
 
 mod tests;
@@ -131,7 +131,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     init_apic().unwrap();
 
-    enable_syscall_and_int();
+    enable_syscall();
 
     Process::init_idle_process();
     
