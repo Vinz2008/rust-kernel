@@ -1,88 +1,70 @@
-use core::{cell::UnsafeCell, ptr::{read_volatile, write_volatile}};
-
 use acpi::{AcpiError, AcpiTables, platform::{AcpiPlatform, InterruptModel, interrupt::Apic}};
 use spin::{Mutex, Once};
 use x86_64::{VirtAddr, instructions::{interrupts::without_interrupts, port::Port}, registers::model_specific::{ApicBase, ApicBaseFlags}};
 
-use crate::{acpi::{ACPI_PLATFORM, MapHandler}, interrupts::InterruptIndex, paging::PHYSICAL_MEMORY_OFFSET, serial_println};
+use crate::{acpi::{ACPI_PLATFORM, MapHandler}, interrupts::InterruptIndex, mmio::MmioRegister, paging::PHYSICAL_MEMORY_OFFSET, serial_println};
 
-#[repr(transparent)]
-struct MmioRegister {
-    val : UnsafeCell<u32>,
-}
+//unsafe impl<T> Sync for MmioRegister<T> {}
 
-impl MmioRegister {
-    #[inline]
-    fn read(&self) -> u32 {
-        unsafe { read_volatile(self.val.get()) }
-    }
-
-    // after calling this, read the id to ensure the write
-    #[inline]
-    fn write(&self, val : u32){
-        unsafe { write_volatile(self.val.get(), val); }
-    }
-}
-
-unsafe impl Sync for MmioRegister {}
+type ApicMmioReg = MmioRegister<u32>;
 
 #[repr(C)]
 struct LocalApicRegisters {
     _reserved_000: [u8; 0x20],
 
-    id: MmioRegister,
+    id: ApicMmioReg,
 
     _reserved_024: [u8; 0x30 - 0x24],
 
-    version: MmioRegister,
+    version: ApicMmioReg,
 
     _reserved_034: [u8; 0x80 - 0x34],
 
-    task_priority: MmioRegister,
+    task_priority: ApicMmioReg,
 
     _reserved_084: [u8; 0xB0 - 0x84],
 
-    end_of_interrupt: MmioRegister,
+    end_of_interrupt: ApicMmioReg,
 
     _reserved_0b4: [u8; 0xF0 - 0xB4],
 
-    spurious_interrupt_vector: MmioRegister,
+    spurious_interrupt_vector: ApicMmioReg,
 
     _reserved_0f4: [u8; 0x320 - 0xF4],
 
-    timer_lvt: MmioRegister,
+    timer_lvt: ApicMmioReg,
 
     _reserved_324: [u8; 0x330 - 0x324],
 
-    thermal_lvt: MmioRegister,
+    thermal_lvt: ApicMmioReg,
 
     _reserved_334: [u8; 0x340 - 0x334],
 
-    performance_lvt: MmioRegister,
+    performance_lvt: ApicMmioReg,
 
     _reserved_344: [u8; 0x350 - 0x344],
 
-    lint0_lvt: MmioRegister,
+    lint0_lvt: ApicMmioReg,
 
     _reserved_354: [u8; 0x360 - 0x354],
 
-    lint1_lvt: MmioRegister,
+    lint1_lvt: ApicMmioReg,
 
     _reserved_364: [u8; 0x370 - 0x364],
 
-    error_lvt: MmioRegister,
+    error_lvt: ApicMmioReg,
 
     _reserved_374: [u8; 0x380 - 0x374],
 
-    initial_count: MmioRegister,
+    initial_count: ApicMmioReg,
 
     _reserved_384: [u8; 0x390 - 0x384],
 
-    current_count: MmioRegister,
+    current_count: ApicMmioReg,
 
     _reserved_394: [u8; 0x3e0 - 0x394],
 
-    divide_configuration: MmioRegister,
+    divide_configuration: ApicMmioReg,
 }
 
 impl LocalApicRegisters {
@@ -260,9 +242,9 @@ impl IoApic {
 
 #[repr(C)]
 struct IoApicMmio {
-    register_select: MmioRegister,
+    register_select: ApicMmioReg,
     _reserved: [u8; 0x0c],
-    register_window: MmioRegister,
+    register_window: ApicMmioReg,
 }
 
 enum Gsi {

@@ -72,7 +72,12 @@ const REG_MONTH : u8 = 0x08;
 const REG_YEAR : u8 = 0x09;
 
 
+// TODO : add a date command
+
+// TODO : add timezone support (use an offset)
+
 // TODO : read century (need to find it with acpi)
+
 
 fn read_rtc_snapshot(rtc : &mut Rtc, rtc_time : &mut RTCTime){
     wait_for_update(rtc);

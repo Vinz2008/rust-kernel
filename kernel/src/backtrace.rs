@@ -106,9 +106,9 @@ impl Display for Backtrace {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         for fun in self.iter() {
             if let Some((name, offset)) = symbols::lookup_symbol(fun){
-                writeln!(f, "0x{:x}  {}+0x{:x}", fun, name, offset)?;
+                writeln!(f, "{:#x}  {}+{:#x}", fun, name, offset)?;
             } else {
-                writeln!(f, "0x{:x} ", fun)?;
+                writeln!(f, "{:#x} ", fun)?;
             }
             
         }

@@ -14,7 +14,7 @@ extern crate alloc;
 
 use bootloader::{BootInfo, entry_point};
 
-use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall, process::Process, random::init_kernel_rng, rtc::{BOOT_TIME, init_rtc}, security::enable_security_features, sse::init_fpu_template, utils::hlt_loop};
+use crate::{acpi::init_acpi, apic::init_apic, gdt::init_tss, initrd::load_initrd_init, msr::enable_syscall, pcie::init_pcie, process::Process, random::init_kernel_rng, rtc::{BOOT_TIME, init_rtc}, security::enable_security_features, sse::init_fpu_template, utils::hlt_loop};
 
 
 mod tests;
@@ -41,9 +41,12 @@ mod rtc;
 
 mod sse;
 
+mod mmio;
 mod msr;
 mod acpi;
 mod apic;
+
+mod pcie;
 
 mod paging;
 mod allocator;
@@ -128,6 +131,8 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     init_rtc();
 
     serial_println!("boot time : {}", BOOT_TIME.get().unwrap());
+
+    init_pcie();
 
     init_apic().unwrap();
 
