@@ -1,8 +1,8 @@
-use acpi::{AcpiError, AcpiTables, platform::{AcpiPlatform, InterruptModel, interrupt::Apic}};
+use acpi::{AcpiError, platform::{InterruptModel, interrupt::Apic}};
 use spin::{Mutex, Once};
 use x86_64::{VirtAddr, instructions::{interrupts::without_interrupts, port::Port}, registers::model_specific::{ApicBase, ApicBaseFlags}};
 
-use crate::{acpi::{ACPI_PLATFORM, MapHandler}, interrupts::InterruptIndex, mmio::MmioRegister, paging::PHYSICAL_MEMORY_OFFSET, serial_println};
+use crate::{acpi::ACPI_PLATFORM, interrupts::InterruptIndex, mmio::MmioRegister, paging::PHYSICAL_MEMORY_OFFSET, serial_println};
 
 //unsafe impl<T> Sync for MmioRegister<T> {}
 
@@ -318,10 +318,10 @@ fn _init_apic() -> Result<(), AcpiError> {
     
     {
         let mut io_apic_lock = IO_APIC.get().unwrap().lock();
-        let gsi_timer = irq_to_gsi(&apic, Gsi::Timer as u8);
+        let gsi_timer = irq_to_gsi(apic, Gsi::Timer as u8);
         serial_println!("gsi_timer : {}", gsi_timer);
         io_apic_lock.route(gsi_timer, InterruptIndex::Timer as u8, local_apid_id);
-        let gsi_keyboard = irq_to_gsi(&apic, Gsi::Keyboard as u8);
+        let gsi_keyboard = irq_to_gsi(apic, Gsi::Keyboard as u8);
         serial_println!("gsi_keyboard : {}", gsi_keyboard);
         io_apic_lock.route(gsi_keyboard, InterruptIndex::Keyboard as u8, local_apid_id);
     }
@@ -332,5 +332,5 @@ fn _init_apic() -> Result<(), AcpiError> {
 
 pub fn init_apic() -> Result<(), AcpiError> {
     // TODO : only do it if supported
-    without_interrupts(|| _init_apic())
+    without_interrupts(_init_apic)
 }

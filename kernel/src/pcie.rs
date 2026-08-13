@@ -82,7 +82,7 @@ struct PciType0Header {
 fn get_addr_space_addr(base_addr : PhysAddr) -> VirtAddr {
     // TODO : maybe map manually the pages as not cached instead of using the physmap, which is cached
     let virt_base_addr = PHYSICAL_MEMORY_OFFSET + base_addr.as_u64();
-    return virt_base_addr;
+    virt_base_addr
 }
 
 fn get_header_at<T>(base_addr : PhysAddr, start_bus: u8, bus : u8, dev : u8, function : u8) -> &'static T {
@@ -171,13 +171,12 @@ fn create_device(header : &PciCommonHeader, base_addr : PhysAddr, start_bus : u8
         function,
         base_addr,
         start_bus,
-        // TODO
         vendor_id: header.vendor_id.read(),
         device_id: header.device_id.read(),
         class_code: header.class_code.read(),
         subclass: header.subclass.read(),
         prog_if: header.prog_if.read(),
-        header_type: header_type,
+        header_type,
         bars,
     }
 }

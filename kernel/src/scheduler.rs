@@ -23,7 +23,9 @@ pub enum ReadyMode {
 }
 
 pub struct Scheduler {
+    #[allow(clippy::vec_box)]
     pub processes : Vec<Box<Process>>,
+    
     dead_processes_count : usize,
     pub runnable_processes : VecDeque<Pid>,
     pub current_process : Option<Pid>,
@@ -51,7 +53,7 @@ impl Scheduler {
 
         for (idx, proc) in self.processes.iter_mut().enumerate(){
             if proc.state == SchedulerState::Dead {
-                *proc = Box::new(process);
+                **proc = process;
                 self.dead_processes_count -= 1;
                 return Pid(NonZero::new(idx + 1).unwrap());
             }

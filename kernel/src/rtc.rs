@@ -24,7 +24,7 @@ impl Rtc {
     fn read(&mut self, reg : u8) -> u8 {
         unsafe {
             self.port_addr.write(reg);
-            return self.port_data.read();
+            self.port_data.read()
         }
     }
 }
@@ -136,5 +136,5 @@ fn read_rtc() -> RTCTime {
 pub static BOOT_TIME : Once<RTCTime> = Once::new();
 
 pub fn init_rtc(){
-    BOOT_TIME.call_once(|| read_rtc());
+    BOOT_TIME.call_once(read_rtc);
 }

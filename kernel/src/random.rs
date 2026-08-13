@@ -123,13 +123,17 @@ fn retry_rdseed64() -> Option<u64 >{
 static KERNEL_RNG : Once<Mutex<KernelRng>> = Once::new();
 
 pub fn init_kernel_rng(){
-    let mut seed = [0; 32];
+    let mut seed = [0 as u8; 32];
     let cpu_id = CpuId::new();
     if !cpu_id.get_extended_feature_info().is_some_and(|features| features.has_rdseed()){
         panic!("rsseed unsupported, couldn't seed the rng");
     }
 
-    for chunk in seed.chunks_exact_mut(8) {
+    let (chunks, remainder) = seed.as_chunks_mut::<8>();
+    debug_assert!(remainder.is_empty());
+    let _ = remainder;
+
+    for chunk in chunks {
         let value = retry_rdseed64().expect("rdseed retry failed, couldn't seed the rng");
         chunk.copy_from_slice(&value.to_le_bytes());
     }

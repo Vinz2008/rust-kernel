@@ -1,9 +1,9 @@
 use core::ptr::NonNull;
 
-use acpi::{AcpiError, AcpiTable, AcpiTables, Handler, platform::AcpiPlatform, rsdp::Rsdp, sdt::fadt::Fadt};
+use acpi::{AcpiError, AcpiTables, Handler, platform::AcpiPlatform, rsdp::Rsdp};
 use spin::Once;
 
-use crate::{paging::PHYSICAL_MEMORY_OFFSET, println};
+use crate::{paging::PHYSICAL_MEMORY_OFFSET};
 
 #[derive(Clone, Copy)]
 pub struct MapHandler;

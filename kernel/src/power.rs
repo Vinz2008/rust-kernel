@@ -1,8 +1,8 @@
 use acpi::{address::AddressSpace, sdt::fadt::Fadt};
 use shared_consts::SHUTDOWN_SUCCESS;
-use x86_64::instructions::{interrupts, port::{Port, PortReadOnly, PortWriteOnly}};
+use x86_64::instructions::{interrupts, port::{Port, PortWriteOnly}};
 
-use crate::{acpi::ACPI_PLATFORM, paging::PHYSICAL_MEMORY_OFFSET, qemu::{self, QemuExitCode}, serial_println};
+use crate::{acpi::ACPI_PLATFORM, paging::PHYSICAL_MEMORY_OFFSET, qemu::{self, QemuExitCode}};
 
 pub fn shutdown(flags : u64) -> ! {
     interrupts::disable();
