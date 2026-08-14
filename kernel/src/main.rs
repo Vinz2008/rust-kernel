@@ -47,6 +47,7 @@ mod acpi;
 mod apic;
 
 mod pcie;
+mod ahci;
 
 mod paging;
 mod allocator;

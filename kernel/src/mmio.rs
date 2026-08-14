@@ -17,3 +17,7 @@ impl<T : Copy> MmioRegister<T> {
         unsafe { write_volatile(self.val.get(), val); }
     }
 }
+
+// used for reserved types, can't read or write it
+#[repr(transparent)]
+pub struct Reserved<T>(T);

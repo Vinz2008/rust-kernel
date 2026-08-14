@@ -6,7 +6,7 @@ use arrayvec::ArrayVec;
 use spin::Once;
 use x86_64::{PhysAddr, VirtAddr};
 
-use crate::{acpi::ACPI_PLATFORM, mmio::MmioRegister, paging::PHYSICAL_MEMORY_OFFSET, serial_println};
+use crate::{acpi::ACPI_PLATFORM, ahci, mmio::MmioRegister, paging::PHYSICAL_MEMORY_OFFSET, serial_println};
 
 
 enum PciBarKind {
@@ -16,7 +16,7 @@ enum PciBarKind {
     // TODO : should I make this packed (like a MemoryBarKind struct wrapper, which would just contains an u64, put the prefetchable bool in one of the unused bits,and then have a method to get the phys_addr and one for the prefetchable)
     Memory {
         address : PhysAddr,
-        prefetchable : bool, // TODO : if prefetchable is false, would not not cached memory, for now crash if is false, then map the memory in a non cached way
+        prefetchable : bool,
     },
 }
 
@@ -25,7 +25,7 @@ struct PciBar {
     kind : PciBarKind,
 }
 
-struct PcieDevice {
+pub struct PcieDevice {
     bus : u8,
     dev : u8,
     function : u8,
@@ -128,6 +128,8 @@ fn create_device(header : &PciCommonHeader, base_addr : PhysAddr, start_bus : u8
                     // memory BAR
                     let mem_type = (bar >> 1) & 0x3;
                     let prefetchable = bar & (1 << 3) != 0;
+                    // TODO : if prefetchable is false, would not not cached memory, for now just ignore it, then map the memory in a non cached way
+
                     let current_idx = idx;
                     let phys = match mem_type {
                         0x0 => {
@@ -181,6 +183,18 @@ fn create_device(header : &PciCommonHeader, base_addr : PhysAddr, start_bus : u8
     }
 }
 
+fn init_device(device : &PcieDevice){
+    match (device.class_code, device.subclass, device.prog_if){
+        (0x01, 0x06, 0x01) => {
+            ahci::init(device);
+        }
+        // TODO : (0x01, 0x08, 0x02) = nvme
+        // TODO : (0x0c, 0x03, 0x30) = xhci/usb
+        // TODO : (0x02, 0x00, _) = ethernet
+        _ => serial_println!("unsupported device {} {} {}", device.class_code, device.subclass, device.prog_if), // TODO : should I panic ?
+    }
+}
+
 static PCIE_DEVICES : Once<Vec<PcieDevice>> = Once::new();
 
  // TODO instead of brute force scanning, use the recusive scan method
@@ -225,6 +239,10 @@ pub fn init_pcie(){
                 }
             }
         }
+    }
+
+    for device in &pcie_devices {
+        init_device(device);
     }
 
     PCIE_DEVICES.call_once(|| pcie_devices);
