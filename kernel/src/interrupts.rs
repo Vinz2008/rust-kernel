@@ -4,14 +4,15 @@ use pc_keyboard::{DecodedKey, HandleControl, KeyCode, KeyState, PS2Keyboard, Sca
 use spin::Mutex;
 use x86_64::{VirtAddr, instructions::port::Port, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
-use crate::{apic::LOCAL_APIC, backtrace::Backtrace, gdt, pic::PIC_1_OFFSET, process::Pid, ringbuf::RingBuf, scheduler::{SCHEDULER, kill_current_and_schedule, schedule}, serial::SERIAL1, serial_println, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
+use crate::{apic::LOCAL_APIC, ahci::ahci_interrupt_handler, backtrace::Backtrace, gdt, pic::PIC_1_OFFSET, process::Pid, ringbuf::RingBuf, scheduler::{SCHEDULER, kill_current_and_schedule, schedule}, serial::SERIAL1, serial_println, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum InterruptIndex {
     Timer = PIC_1_OFFSET,
     Keyboard,
-    Spurious = 0xFF, // only for APIC
+    Ahci = 0x40,
+    Spurious = 0xFF,
 }
 
 lazy_static! {
@@ -26,6 +27,8 @@ lazy_static! {
             idt[InterruptIndex::Timer as u8].set_handler_addr(VirtAddr::new(timer_interrupt_stub as *const () as u64));
         }
         idt[InterruptIndex::Keyboard as u8].set_handler_fn(keyboard_interrupt_handler);
+
+        idt[InterruptIndex::Ahci as u8].set_handler_fn(ahci_interrupt_handler);
 
         idt[InterruptIndex::Spurious as u8].set_handler_fn(spurious_interrupt_handler);
 

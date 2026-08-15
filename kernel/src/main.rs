@@ -133,9 +133,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     serial_println!("boot time : {}", BOOT_TIME.get().unwrap());
 
-    init_pcie();
-
     init_apic().unwrap();
+
+    init_pcie();
 
     enable_syscall();
 

@@ -6,7 +6,7 @@ use arrayvec::ArrayVec;
 use spin::Once;
 use x86_64::{PhysAddr, VirtAddr};
 
-use crate::{acpi::ACPI_PLATFORM, ahci, mmio::MmioRegister, paging::PHYSICAL_MEMORY_OFFSET, serial_println};
+use crate::{acpi::ACPI_PLATFORM, ahci, apic::get_lapic_id, interrupts::InterruptIndex, mmio::MmioRegister, paging::PHYSICAL_MEMORY_OFFSET, serial_println};
 
 
 pub enum PciBarKind {
@@ -46,6 +46,10 @@ pub struct PcieDevice {
 impl PcieDevice {
     pub fn get_common_header(&self) -> &'static PciCommonHeader {
         get_common_header(self.base_addr, self.start_bus, self.bus, self.dev, self.function)
+    }
+
+    pub fn get_type_0_header(&self) -> &'static PciType0Header {
+        get_type_0_header(self.base_addr, self.start_bus, self.bus, self.dev, self.function)
     }
 
     pub fn get_bar(&self, idx : u8) -> &PciBar {
@@ -91,6 +95,37 @@ struct PciType0Header {
     max_latency: MmioRegister<u8>,         // 0x3F
 }
 
+#[repr(C)]
+struct PciCapabilityHeader {
+    id: MmioRegister<u8>,
+    next: MmioRegister<u8>,
+}
+
+#[repr(C)]
+struct MsiCapabilityHeader {
+    id: MmioRegister<u8>,              // +0x00
+    next: MmioRegister<u8>,            // +0x01
+    message_control: MmioRegister<u16>,// +0x02
+    message_address_low: MmioRegister<u32>,
+}
+
+#[repr(C)]
+struct MsiCapability32 {
+    header: MsiCapabilityHeader,
+    message_data: MmioRegister<u16>, // +0x08
+}
+
+#[repr(C)]
+struct MsiCapability64 {
+    header: MsiCapabilityHeader,
+    message_address_high: MmioRegister<u32>, // +0x08
+    message_data: MmioRegister<u16>,         // +0x0C
+}
+
+const PCI_CAP_ID_MSI: u8 = 0x05;
+
+const PCI_STATUS_CAPABILITIES_LIST : u16 = 1 << 4;
+
 fn get_addr_space_addr(base_addr : PhysAddr) -> VirtAddr {
     // TODO : maybe map manually the pages as not cached instead of using the physmap, which is cached
     let virt_base_addr = PHYSICAL_MEMORY_OFFSET + base_addr.as_u64();
@@ -117,7 +152,7 @@ fn get_type_0_header(base_addr : PhysAddr, start_bus: u8, bus : u8, dev : u8, fu
     get_header_at::<PciType0Header>(base_addr, start_bus, bus, dev, function)
 }
 
-fn create_normal_device(bars : &mut ArrayVec<PciBar, 6>, base_addr : PhysAddr, start_bus : u8, bus : u8, dev : u8, function : u8){
+fn create_normal_device(bars : &mut ArrayVec<PciBar, 6>, base_addr : PhysAddr, start_bus : u8, bus : u8, dev : u8, function : u8){    
     let header_type0 = get_type_0_header(base_addr, start_bus, bus, dev, function);
     let mut idx = 0 as u8;
     while idx < header_type0.bars.len() as u8 {
@@ -226,7 +261,61 @@ fn create_device(header : &PciCommonHeader, base_addr : PhysAddr, start_bus : u8
     }
 }
 
+
+const MSI_ENABLE: u16 = 1 << 0;
+const MSI_64BIT_CAPABLE: u16 = 1 << 7;
+
+pub fn enable_msi(device : &PcieDevice, vector : InterruptIndex){
+    let header_type0 = device.get_type_0_header();
+    let has_capabilities = header_type0.common.status.read() & PCI_STATUS_CAPABILITIES_LIST != 0;
+    // TODO, instead of this, return a err if capabilites list is not supported ?
+    if has_capabilities {
+        // TODO : make the searching into the capabilites generic using an iterator
+        let mut offset = header_type0.capabilities_ptr.read() & !0b11;
+        let config_addr = VirtAddr::from_ptr(header_type0 as *const PciType0Header);
+        while offset != 0 {
+            let pci_capability = unsafe { &*(config_addr + offset as u64).as_ptr::<PciCapabilityHeader>() };
+            if pci_capability.id.read() == PCI_CAP_ID_MSI {
+                break;
+            }
+            offset = pci_capability.next.read() & !0b11;
+        }
+        let has_msi = offset != 0;
+        if !has_msi {
+            panic!("msi unsupported");
+        }
+        let msi_addr: VirtAddr = config_addr + offset as u64;
+        let msi_capability = unsafe { &*(msi_addr).as_ptr::<MsiCapabilityHeader>() };
+        let is_64_bit = msi_capability.message_control.read() & MSI_64BIT_CAPABLE != 0;
+        let apic_id = get_lapic_id();
+        let message_address = 0xfee0_0000u32 | ((apic_id as u32) << 12);
+        let message_data = vector as u16;
+
+        msi_capability.message_address_low.write(message_address);
+
+        if is_64_bit {
+            let msi64 = unsafe {
+                &*msi_addr.as_ptr::<MsiCapability64>()
+            };
+            msi64.message_address_high.write(0);
+            msi64.message_data.write(message_data);
+        } else {
+            let msi32 = unsafe {
+                &*msi_addr.as_ptr::<MsiCapability32>()  
+            };
+            msi32.message_data.write(message_data);
+        }
+        let mut control = msi_capability.message_control.read();
+
+        // Request only one MSI message.
+        control &= !(0b111 << 4);
+        control |= MSI_ENABLE;
+        msi_capability.message_control.write(control);
+    }
+}
+
 fn init_device(device : &PcieDevice){
+
     match (device.class_code, device.subclass, device.prog_if){
         (0x01, 0x06, 0x01) => {
             ahci::init(device);

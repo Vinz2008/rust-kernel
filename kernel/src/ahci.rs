@@ -1,8 +1,8 @@
 use core::{hint, mem::offset_of};
 
-use x86_64::{registers::control::Cr3, structures::paging::{Page, PageSize, PageTableFlags, PhysFrame, Size4KiB}};
+use x86_64::{registers::control::Cr3, structures::{idt::InterruptStackFrame, paging::{Page, PageSize, PageTableFlags, PhysFrame, Size4KiB}}};
 
-use crate::{apic::TIMER_HZ, interrupts::ticks, mmio::{self, MmioRegister, Reserved}, paging::{active_level_4_table, map_page_at_in, map_page_phys_at_in}, pcie::{PciBarKind, PcieDevice}, serial_println};
+use crate::{apic::TIMER_HZ, interrupts::{InterruptIndex, end_of_interrupt, ticks}, mmio::{self, MmioRegister, Reserved}, paging::{active_level_4_table, map_page_at_in, map_page_phys_at_in}, pcie::{PciBarKind, PcieDevice, enable_msi}, serial_println};
 
 // TODO : finish this
 
@@ -175,12 +175,25 @@ fn bios_os_handoff(hba: &HBAMem) {
     }
 }
 
+const GHC_HR: u32 = 1 << 0;
+
+fn reset_controller(hba: &HBAMem) {
+    let mut ghc = hba.ghc.read();
+    ghc |= GHC_HR;
+    hba.ghc.write(ghc);
+
+    if !wait_with_timeout(1000, || hba.ghc.read() & GHC_HR == 0) {
+        panic!("AHCI controller reset timeout");
+    }
+}
+
 const PCI_COMMAND_MEMORY_SPACE: u16 = 1 << 1; // Allow accesses to the AHCI MMIO BAR.
 const PCI_COMMAND_BUS_MASTER: u16 = 1 << 2; // Allow the AHCI controller to DMA to/from RAM.
 const PCI_COMMAND_INTX_DISABLE: u16 = 1 << 10;
 
 // TODO : use the checklist from here : https://wiki.osdev.org/AHCI (needs to also add code in the pcie part ?)
 pub fn init(device : &PcieDevice){
+    enable_msi(device, InterruptIndex::Ahci);
     let header = device.get_common_header();
 
     let mut cmd = header.command.read();
@@ -225,4 +238,11 @@ pub fn init(device : &PcieDevice){
     };
 
     bios_os_handoff(hba);
+
+    reset_controller(hba);
+}
+
+pub extern "x86-interrupt" fn ahci_interrupt_handler(_stack_frame: InterruptStackFrame){
+    // TODO
+    end_of_interrupt();
 }

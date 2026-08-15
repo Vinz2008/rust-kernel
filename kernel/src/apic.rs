@@ -140,11 +140,21 @@ fn pit_wait_ms(pit_wait : PitWait) {
 
 pub const TIMER_HZ : u64 = 100;
 
+// TODO : would need to change after having multiple LocalApic (after adding SMP)
+pub fn get_lapic_id() -> u8 {
+    LOCAL_APIC.get().unwrap().lock().id()
+}
+
 impl LocalApic {
+    // TODO : stop using &mut self and use &self instead in all of these methods ?
     fn get_regs(&mut self) -> &mut LocalApicRegisters {
         unsafe {
             &mut *self.0.as_mut_ptr::<LocalApicRegisters>()
         }
+    }
+
+    pub fn id(&mut self) -> u8 {
+        self.get_regs().id()
     }
 
     pub fn end_of_interrupt(&mut self){
