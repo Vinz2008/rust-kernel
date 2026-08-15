@@ -1,8 +1,8 @@
-use core::{hint, mem::offset_of};
+use core::hint;
 
 use x86_64::{registers::control::Cr3, structures::{idt::InterruptStackFrame, paging::{Page, PageSize, PageTableFlags, PhysFrame, Size4KiB}}};
 
-use crate::{apic::TIMER_HZ, interrupts::{InterruptIndex, end_of_interrupt, ticks}, mmio::{self, MmioRegister, Reserved}, paging::{active_level_4_table, map_page_at_in, map_page_phys_at_in}, pcie::{PciBarKind, PcieDevice, enable_msi}, serial_println};
+use crate::{apic::TIMER_HZ, interrupts::{InterruptIndex, end_of_interrupt, ticks}, mmio::{self, MmioRegister, Reserved}, paging::map_page_phys_at_in, pcie::{PciBarKind, PcieDevice, enable_msi}};
 
 // TODO : finish this
 
@@ -170,7 +170,6 @@ fn bios_os_handoff(hba: &HBAMem) {
             if !wait_with_timeout(2000, || hba.bohc.read() & BOHC_BOS == 0){
                 panic!("BIOS handoff timeout");
             }
-            return;
         }
     }
 }

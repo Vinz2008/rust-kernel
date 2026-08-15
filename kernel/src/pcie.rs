@@ -79,7 +79,7 @@ pub struct PciCommonHeader {
 }
 
 #[repr(C)]
-struct PciType0Header {
+pub struct PciType0Header {
     common: PciCommonHeader,
 
     bars: [MmioRegister<u32>; 6],          // 0x10..0x27
