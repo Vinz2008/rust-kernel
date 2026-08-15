@@ -4,8 +4,6 @@ use x86_64::{VirtAddr, instructions::{interrupts::without_interrupts, port::Port
 
 use crate::{acpi::ACPI_PLATFORM, interrupts::InterruptIndex, mmio::MmioRegister, paging::PHYSICAL_MEMORY_OFFSET, serial_println};
 
-//unsafe impl<T> Sync for MmioRegister<T> {}
-
 type ApicMmioReg = MmioRegister<u32>;
 
 #[repr(C)]
@@ -140,6 +138,8 @@ fn pit_wait_ms(pit_wait : PitWait) {
     }
 }
 
+pub const TIMER_HZ : u64 = 100;
+
 impl LocalApic {
     fn get_regs(&mut self) -> &mut LocalApicRegisters {
         unsafe {
@@ -192,8 +192,10 @@ impl LocalApic {
         pit_wait_ms(pit_wait);
     
         let current = regs.current_count.read();
-        let ticks_50ms = u32::MAX - current;
-        let initial_count = ticks_50ms / 5; // 10ms = 100Hz
+        let ticks_50ms = (u32::MAX - current) as u64;
+
+        let initial_count = ((20 * ticks_50ms)/TIMER_HZ) as u32;
+
         self.start_timer(initial_count);
 
         let _ = self.get_regs().id.read();

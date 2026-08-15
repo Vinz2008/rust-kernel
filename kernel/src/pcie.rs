@@ -9,20 +9,20 @@ use x86_64::{PhysAddr, VirtAddr};
 use crate::{acpi::ACPI_PLATFORM, ahci, mmio::MmioRegister, paging::PHYSICAL_MEMORY_OFFSET, serial_println};
 
 
-enum PciBarKind {
+pub enum PciBarKind {
     Io {
         port : u16,
     },
-    // TODO : should I make this packed (like a MemoryBarKind struct wrapper, which would just contains an u64, put the prefetchable bool in one of the unused bits,and then have a method to get the phys_addr and one for the prefetchable)
     Memory {
         address : PhysAddr,
+        size : u64,
         prefetchable : bool,
     },
 }
 
-struct PciBar {
+pub struct PciBar {
     idx: u8,
-    kind : PciBarKind,
+    pub kind : PciBarKind,
 }
 
 pub struct PcieDevice {
@@ -43,23 +43,35 @@ pub struct PcieDevice {
     bars : ArrayVec<PciBar, 6>,
 }
 
+impl PcieDevice {
+    pub fn get_common_header(&self) -> &'static PciCommonHeader {
+        get_common_header(self.base_addr, self.start_bus, self.bus, self.dev, self.function)
+    }
+
+    pub fn get_bar(&self, idx : u8) -> &PciBar {
+        debug_assert!(idx < 6);
+
+        self.bars.iter().find(|&bar| bar.idx == idx).unwrap()
+    }
+}
+
 #[repr(C)]
-struct PciCommonHeader {
-    vendor_id: MmioRegister<u16>,       // 0x00
-    device_id: MmioRegister<u16>,       // 0x02
+pub struct PciCommonHeader {
+    pub vendor_id: MmioRegister<u16>,       // 0x00
+    pub device_id: MmioRegister<u16>,       // 0x02
 
-    command: MmioRegister<u16>,         // 0x04
-    status: MmioRegister<u16>,          // 0x06
+    pub command: MmioRegister<u16>,         // 0x04
+    pub status: MmioRegister<u16>,          // 0x06
 
-    revision_id: MmioRegister<u8>,      // 0x08
-    prog_if: MmioRegister<u8>,          // 0x09
-    subclass: MmioRegister<u8>,         // 0x0A
-    class_code: MmioRegister<u8>,       // 0x0B
+    pub revision_id: MmioRegister<u8>,      // 0x08
+    pub prog_if: MmioRegister<u8>,          // 0x09
+    pub subclass: MmioRegister<u8>,         // 0x0A
+    pub class_code: MmioRegister<u8>,       // 0x0B
 
-    cache_line_size: MmioRegister<u8>,  // 0x0C
-    latency_timer: MmioRegister<u8>,    // 0x0D
-    header_type: MmioRegister<u8>,      // 0x0E
-    bist: MmioRegister<u8>,             // 0x0F
+    pub cache_line_size: MmioRegister<u8>,  // 0x0C
+    pub latency_timer: MmioRegister<u8>,    // 0x0D
+    pub header_type: MmioRegister<u8>,      // 0x0E
+    pub bist: MmioRegister<u8>,             // 0x0F
 }
 
 #[repr(C)]
@@ -105,59 +117,90 @@ fn get_type_0_header(base_addr : PhysAddr, start_bus: u8, bus : u8, dev : u8, fu
     get_header_at::<PciType0Header>(base_addr, start_bus, bus, dev, function)
 }
 
+fn create_normal_device(bars : &mut ArrayVec<PciBar, 6>, base_addr : PhysAddr, start_bus : u8, bus : u8, dev : u8, function : u8){
+    let header_type0 = get_type_0_header(base_addr, start_bus, bus, dev, function);
+    let mut idx = 0 as u8;
+    while idx < header_type0.bars.len() as u8 {
+        let bar_ref = &header_type0.bars[idx as usize];
+        let bar = bar_ref.read();
+        if bar == 0 {
+            // unused
+        } else if bar & 1 != 0 {
+            // IO port BAR
+            let port = (bar & !0x3) as u16;
+            bars.push(PciBar { 
+                idx, 
+                kind: PciBarKind::Io { port }, 
+            });
+        } else {
+            // memory BAR
+            let mem_type = (bar >> 1) & 0x3;
+            let prefetchable = bar & (1 << 3) != 0;
+            // TODO : if prefetchable is false, would not not cached memory, for now just ignore it, then map the memory in a non cached way
+
+            let current_idx = idx;
+            let (phys, size) = match mem_type {
+                0x0 => {
+                    // 32-bit MMIO BAR
+                    let phys = bar & !0xf;
+                    let phys = PhysAddr::new(phys as u64);
+                            
+                    // find the size, by writing 0xffff_ffff, then looking at how it is corrected to be aligned
+                    bar_ref.write(0xffff_ffff);
+                    let aligned = bar_ref.read();
+                    bar_ref.write(bar);
+                    let mask = aligned & !0xf; // mask the flags bits
+                    debug_assert!(mask != 0);
+                    let size = (!mask).wrapping_add(1) as u64;
+                    (phys, size)
+                }
+                0x2 => {
+                    // 64-bit BAR
+                    let high_idx = (idx + 1) as usize;
+                    let high_bar = header_type0.bars[high_idx].read();
+                    let phys_low = (bar as u64) & 0xffff_fff0;
+                    let phys_high = high_bar as u64;
+                            
+                    let phys = (phys_high << 32) | phys_low;
+                    let phys = PhysAddr::new(phys);
+                            
+                    bar_ref.write(0xffff_ffff);
+                    header_type0.bars[high_idx].write(0xffff_ffff);
+                    let aligned_low = bar_ref.read() as u64;
+                    let aligned_high = header_type0.bars[high_idx].read() as u64;
+                    bar_ref.write(bar);
+                    header_type0.bars[high_idx].write(high_bar);
+                            
+                    let mask = (aligned_high << 32) | (aligned_low & !0xf);
+                    let size = (!mask).wrapping_add(1);
+
+                    idx += 1;
+                    (phys, size)
+                },
+                _ => {
+                    panic!("unsupported/reserved/legacy pcie bar");
+                }
+            };
+            bars.push(PciBar { 
+                idx: current_idx, 
+                kind: PciBarKind::Memory { 
+                    address: phys,
+                    size, 
+                    prefetchable,
+                }, 
+            });
+        }
+        idx += 1;
+    }
+}
+
 fn create_device(header : &PciCommonHeader, base_addr : PhysAddr, start_bus : u8, bus : u8, dev : u8, function : u8, header_type : u8) -> PcieDevice {
     let mut bars = ArrayVec::new();
     let layout = header_type & 0x7f;
     match layout {
         0x00 => {
             // normal device
-            let header_type0 = get_type_0_header(base_addr, start_bus, bus, dev, function);
-            let mut idx = 0 as u8;
-            while idx < header_type0.bars.len() as u8 {
-                let bar = header_type0.bars[idx as usize].read();
-                if bar == 0 {
-                    // unused
-                } else if bar & 1 != 0 {
-                    // IO port BAR
-                    let port = (bar & !0x3) as u16;
-                    bars.push(PciBar { 
-                        idx, 
-                        kind: PciBarKind::Io { port }, 
-                    });
-                } else {
-                    // memory BAR
-                    let mem_type = (bar >> 1) & 0x3;
-                    let prefetchable = bar & (1 << 3) != 0;
-                    // TODO : if prefetchable is false, would not not cached memory, for now just ignore it, then map the memory in a non cached way
-
-                    let current_idx = idx;
-                    let phys = match mem_type {
-                        0x0 => {
-                            // 32-bit MMIO BAR
-                            let phys = bar & !0xf;
-                            let phys = PhysAddr::new(phys as u64);
-                            phys
-                        }
-                        0x2 => {
-                            // 64-bit BAR
-                            let low = bar as u64;
-                            let high = (header_type0.bars[(idx + 1) as usize].read()) as u64;
-                            idx += 1;
-                            let phys = (high << 32) | (low & 0xffff_fff0);
-                            let phys = PhysAddr::new(phys);
-                            phys
-                        }
-                        _ => {
-                            panic!("unsupported/reserved/legacy pcie bar");
-                        }
-                    };
-                    bars.push(PciBar { 
-                        idx: current_idx, 
-                        kind: PciBarKind::Memory { address: phys, prefetchable }, 
-                    });
-                }
-                idx += 1;
-            }
+            create_normal_device(&mut bars, base_addr, start_bus, bus, dev, function);
         }
         0x01 => {
             // PCI-to-PCI bridge

@@ -216,6 +216,10 @@ fn is_from_userspace(cs : u64) -> bool {
     (cs & 0b11) == 3
 }
 
+pub fn ticks() -> u64 {
+    TICKS.load(Ordering::Relaxed)
+}
+
 fn timer_interrupt_handler(regs : &mut Registers){
     let tick = TICKS.fetch_add(1, Ordering::Relaxed) + 1;
 
