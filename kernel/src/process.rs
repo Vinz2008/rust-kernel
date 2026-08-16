@@ -3,7 +3,7 @@ use core::{num::NonZero, ptr};
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use shared_consts::{Fd, USER_HEAP_SIZE, USER_HEAP_START};
 use spin::Mutex;
-use x86_64::{PhysAddr, VirtAddr, instructions::interrupts::{self, without_interrupts}, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
+use x86_64::{PhysAddr, VirtAddr, instructions::interrupts::without_interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
 use crate::{allocator::{allocate_userspace_level_4_table, deallocate_userspace_page_tables, deallocate_virtual_page}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, map_page_at_in, map_page_phys_at_in, translate_addr_in}, scheduler::{KernelContext, ReadyMode, SCHEDULER, Scheduler, SchedulerState, idle_main}, serial_println, sse::{DEFAULT_FXSTATE, FxState}, userspace::{USER_STACK_SIZE, USER_STACK_TOP}, utils::Registers};
 
