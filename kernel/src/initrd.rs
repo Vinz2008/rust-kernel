@@ -1,4 +1,5 @@
 use alloc::{borrow::Cow, format, slice, string::ToString, vec::Vec};
+use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::{elf::load_elf, fs::get_inode, process::Process, scheduler::{SCHEDULER, start_first_process}};
 
@@ -156,7 +157,7 @@ pub fn load_initrd_init() -> ! {
         let init_content = init_node.read_entire_file_in_mem().unwrap();
         
 
-        let process_pid = Process::empty_process("/".to_string(), &mut scheduler_lock);
+        let process_pid = without_interrupts(|| Process::empty_process("/".to_string(), &mut scheduler_lock));
 
 
         let elf = {

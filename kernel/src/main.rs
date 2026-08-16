@@ -135,6 +135,8 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     init_apic().unwrap();
 
+    x86_64::instructions::interrupts::enable();
+
     init_pcie();
 
     enable_syscall();

@@ -19,6 +19,15 @@ impl<T : Copy> MmioRegister<T> {
     pub fn write(&self, val : T){
         unsafe { write_volatile(self.val.get(), val); }
     }
+
+    #[inline]
+    pub fn update<F>(&self, f : F)
+    where F : FnOnce(T) -> T 
+    {
+        let r = self.read();
+        let updated = f(r);
+        self.write(updated);
+    }
 }
 
 // used for reserved types, can't read or write it
