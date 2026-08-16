@@ -158,6 +158,7 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "shared_consts",
+ "spin 0.12.2",
 ]
 
 [[package]]

@@ -9,4 +9,5 @@ bench = false
 
 [dependencies]
 shared_consts = { path = "../shared_consts" }
+spin = "0.12.0"
 arrayvec = { version = "0.7.8", default-features = false } # TODO : remove this after dynamic memory

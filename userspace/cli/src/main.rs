@@ -65,6 +65,8 @@ pub extern "Rust" fn main(_args : Args<'_>) -> i32 {
     // TODO : fix the problem with writing being always at the end of the printing and not at the cursor position
     let mut cli = String::new();
     print!("> ");
+    print::flush_stdout().unwrap();
+    
 
     loop {
         let c = syscall_get_char();
@@ -74,17 +76,20 @@ pub extern "Rust" fn main(_args : Args<'_>) -> i32 {
                 println!();
                 handle_cli(&cli);
                 print!("> ");
+                print::flush_stdout().unwrap();
                 cli.clear();
             },
             BACKSPACE => {
                 if !cli.is_empty(){
                     cli.pop();
                     print!("{}", BACKSPACE);
+                    print::flush_stdout().unwrap();
                 }
             }
             _ => {
                 cli.push(c);
                 print!("{}", c);
+                print::flush_stdout().unwrap();
             }
         }
         
