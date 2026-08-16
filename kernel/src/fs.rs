@@ -4,7 +4,7 @@ use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, string::String, sync
 use shared_consts::{DIRENT_DEVICE, DIRENT_DIR, DIRENT_FILE, DirChild, Fd, PATH_NAME_MAX, Stat, StatMode};
 use spin::mutex::Mutex;
 
-use crate::{device::{DeviceOps, STDOUT}, initrd::{INITRD_BYTES, TarInitrd}, process::OpenedFile, scheduler::with_scheduler_no_int, serial_println};
+use crate::{device::{DeviceOps, Stdout}, initrd::{INITRD_BYTES, TarInitrd}, process::OpenedFile, scheduler::with_scheduler_no_int, serial_println};
 use lazy_static::lazy_static;
 
 // TODO : file permissions (first need users, maybe root/admin user ? search about it)
@@ -506,7 +506,7 @@ fn fs_create_root_node(tar_initrd : TarInitrd<'static>) -> Arc<Inode> {
     }
 
     add_inode_to_vfs_tree(root_node.clone(), "/dev", Inode::new_dir(), false).unwrap();
-    add_inode_to_vfs_tree(root_node.clone(), "/dev/stdout", Inode::new_device(&*STDOUT), false).unwrap();
+    add_inode_to_vfs_tree(root_node.clone(), "/dev/stdout", Inode::new_device(&Stdout), false).unwrap();
     
     root_node
 }

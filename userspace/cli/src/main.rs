@@ -65,7 +65,7 @@ pub extern "Rust" fn main(_args : Args<'_>) -> i32 {
     // TODO : fix the problem with writing being always at the end of the printing and not at the cursor position
     let mut cli = String::new();
     print!("> ");
-    print::flush_stdout().unwrap();
+    print::flush_stdout().unwrap(); // TODO : use stderr instead of flushing ?
     
 
     loop {
