@@ -113,7 +113,7 @@ fn allocate_kernel_stack(new_process_idx : usize, page_table_phys : PhysFrame) -
     let page_range = Page::range_inclusive(kernel_stack_start_page, kernel_stack_end_page);
     for page in page_range {
         map_page_at_in(page_table_phys.start_address(), page.start_address(), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE).unwrap().flush(); // TODO : should I really unwrap ?
-// TODO : shouldn't the pages be contiguous ? also, maybe reduce it to 1 or 2 pages ? or maybe 1 page if interrupts use a separate 1 page stack ?
+// TODO : shouldn't the pages be contiguous ? also, maybe reduce it to 1 or 2 pages or 4 pages? or maybe 1 page if interrupts use a separate 1 page stack ?
     }
     stack_end
 }
