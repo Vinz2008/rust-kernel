@@ -76,8 +76,6 @@ mod power;
 
 entry_point!(kernel_main);
 
-// TODO : global random (ChaCha20 ? Mersenne Twister ?)
-
 // TODO : enable stack smashing protection for userspace exes
 
 // TODO : for security reasons, make the kernel a PIE ? (and the userspace programs ?) and enable KASLR ? (also ALSR for userspace programs ?)

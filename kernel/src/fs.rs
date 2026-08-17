@@ -93,9 +93,24 @@ pub fn process_write(fd : Fd, buf : &[u8]) -> Result<usize, FileError> {
     Ok(written)
 }
 
-// TODO : if it uses a lot perf, use cow instead ?
-// TODO : optimize performance ?
-pub fn canonicalize_path(path : &str, cwd : &str) -> Option<String> {
+fn is_path_absolute(path : &str) -> bool {
+    if !path.starts_with('/') {
+        return false;
+    }
+
+    for component in path.split('/').skip(1) {
+        if component.is_empty() || component == "." || component == ".." {
+            return false;
+        }
+    }
+    true
+}
+
+// TODO : optimize to use only one allocation ?
+pub fn canonicalize_path<'a>(path : &'a str, cwd : &str) -> Option<Cow<'a, str>> {
+    if is_path_absolute(path){
+        return Some(Cow::Borrowed(path));
+    }
 
     let mut components = Vec::new();
     if !path.starts_with('/'){
@@ -120,14 +135,15 @@ pub fn canonicalize_path(path : &str, cwd : &str) -> Option<String> {
         }
     }
 
-    let mut result = String::from("/");
+    let mut result = String::with_capacity(cwd.len() + path.len() + 1);
+    result.push('/');
     for (idx, &component) in components.iter().enumerate() {
         if idx != 0 {
             result.push('/');
         }
         result.push_str(component);
     }
-    Some(result)
+    Some(Cow::Owned(result))
 }
 
 // TODO : use trait instead, to abstract from where is the data (to replace the part with the content)

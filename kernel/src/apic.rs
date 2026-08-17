@@ -70,7 +70,7 @@ impl LocalApicRegisters {
         ((self.id.read() >> 24) & 0xFF) as u8
     }
 
-    fn end_of_interrupt(&mut self){
+    fn end_of_interrupt(&self){
         self.end_of_interrupt.write(0);
         let _ = self.id.read();    
     }
@@ -146,22 +146,21 @@ pub fn get_lapic_id() -> u8 {
 }
 
 impl LocalApic {
-    // TODO : stop using &mut self and use &self instead in all of these methods ?
-    fn get_regs(&mut self) -> &mut LocalApicRegisters {
+    fn get_regs(&self) -> &LocalApicRegisters {
         unsafe {
-            &mut *self.0.as_mut_ptr::<LocalApicRegisters>()
+            &*self.0.as_ptr::<LocalApicRegisters>()
         }
     }
 
-    pub fn id(&mut self) -> u8 {
+    pub fn id(&self) -> u8 {
         self.get_regs().id()
     }
 
-    pub fn end_of_interrupt(&mut self){
+    pub fn end_of_interrupt(&self){
         self.get_regs().end_of_interrupt();
     }
 
-    fn start_timer(&mut self, initial_count : u32){
+    fn start_timer(&self, initial_count : u32){
         let regs = self.get_regs();
 
         // stop timer
@@ -176,7 +175,7 @@ impl LocalApic {
         regs.initial_count.write(initial_count);
     }
 
-    fn enable(&mut self){
+    fn enable(&self){
 
         let regs = self.get_regs();
         
@@ -302,7 +301,7 @@ fn _init_apic() -> Result<(), AcpiError> {
     LOCAL_APIC.call_once(|| Mutex::new(LocalApic(lapic_virtal_addr)));
 
     let local_apid_id = {
-        let mut lock = LOCAL_APIC.get().unwrap().lock();
+        let lock = LOCAL_APIC.get().unwrap().lock();
         lock.enable();
         lock.get_regs().id()
     };

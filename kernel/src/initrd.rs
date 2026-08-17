@@ -1,4 +1,6 @@
-use alloc::{borrow::Cow, format, slice, string::ToString, vec::Vec};
+use core::{mem::offset_of, slice};
+
+use alloc::{borrow::Cow, format, string::ToString, vec::Vec};
 use x86_64::instructions::interrupts::without_interrupts;
 
 use crate::{elf::load_elf, fs::get_inode, process::Process, scheduler::{SCHEDULER, start_first_process}};
@@ -11,11 +13,11 @@ pub struct TarHeader {
     gid : [u8; 8],
     size : [u8; 12],
     mtime : [u8; 12],
-    chksum : [u8; 8], // TODO : check chksum ?
+    chksum : [u8; 8],
     typeflag : [u8; 1],
     linkname : [u8; 100],
     // ustar part
-    magic : [u8; 6], // TODO : check magic
+    magic : [u8; 6],
     version : [u8; 2],
     uname : [u8; 32],
     gname : [u8; 32],
@@ -29,6 +31,8 @@ pub struct TarHeader {
 pub enum TarError {
     InvalidUtf8,
     InvalidOctal,
+    InvalidChksum,
+    InvalidMagic,
     NoEnd,
 }
 
@@ -82,6 +86,43 @@ impl TarHeader {
         let slice = unsafe { slice::from_raw_parts(file_content_ptr, size) };
         Ok(slice)
     }
+
+    fn check_magic(&self) -> bool {
+        // POSIX ustar
+        if self.version == *b"00" && self.magic == *b"ustar\0" {
+            return true;
+        }
+
+        // old gnu tar
+        if self.version == *b" \0" && self.magic == *b"ustar " {
+            return true;
+        }
+
+        false
+    }
+
+    // TODO : add version checking ?
+
+    fn check_checksum(&self) -> Result<bool, TarError> {
+        let chksum_expected = parse_octal(&self.chksum)?;
+        let bytes = unsafe {
+            slice::from_raw_parts(self as *const TarHeader as *const u8, size_of::<TarHeader>())
+        };
+
+        let checksum_start = offset_of!(TarHeader, chksum);
+        let checksum_end = checksum_start + self.chksum.len();
+
+        let mut chksum_actual = 0;
+
+        for (idx, &byte) in bytes.iter().enumerate(){
+            if idx >= checksum_start && idx < checksum_end {
+                chksum_actual += b' ' as u64;
+            } else {
+                chksum_actual += byte as u64;
+            }
+        }
+        Ok(chksum_actual == chksum_expected)
+    }
 }
 
 /*struct TarHeader {
@@ -112,6 +153,15 @@ fn get_headers(content : &[u8]) -> Result<Vec<&TarHeader>, TarError> {
         if header.filename[0] == b'\0' {
             break;
         }
+
+        if !header.check_checksum()?{
+            return Err(TarError::InvalidChksum);
+        }
+
+        if !header.check_magic(){
+            return Err(TarError::InvalidMagic);
+        }
+
         let size = parse_octal(&header.size)? as usize;
         let padded_size = size.div_ceil(512).checked_mul(512).ok_or(TarError::NoEnd)?;
         let next_addr = header_end.checked_add(padded_size).ok_or(TarError::NoEnd)?;

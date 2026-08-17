@@ -468,7 +468,7 @@ fn syscall_change_cwd(regs : &mut SyscallRegs) -> Option<()> {
     with_scheduler_no_int(|scheduler|{
         let canonicalized_path = {
             let current_cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes).cwd_path;
-            canonicalize_path(path, current_cwd)?
+            canonicalize_path(path, current_cwd)?.into_owned()
         };
         match file_stat(&canonicalized_path) {
             Ok(Stat { mode: StatMode::Directory }) => {},
