@@ -7,3 +7,4 @@ initrd/bin/shutdown
 initrd/bin/touch
 initrd/bin/cat
 initrd/bin/reboot
+disk.img
