@@ -1,6 +1,6 @@
 /target
 initrd.tar
-initrd/init
+initrd/bin/init
 initrd/bin/cli
 initrd/bin/ls
 initrd/bin/shutdown

@@ -24,7 +24,7 @@ pub enum ReadyMode {
 
 pub struct Scheduler {
     #[allow(clippy::vec_box)]
-    pub processes : Vec<Box<Process>>,
+    pub processes : Vec<Box<Process>>, // TODO : maybe use a Option for the process to make it none after complete cleanup, to not use invalid state, (should it be Vec<Box<Option<Process>>> or Vec<Option<Box<Process>>> ?)
     
     dead_processes_count : usize,
     pub runnable_processes : VecDeque<Pid>,

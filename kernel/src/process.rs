@@ -212,10 +212,9 @@ pub fn cleanup_process_mem_soft(process : &Process){
     deallocate_user_heap(process.heap_start, process.heap_break, process.page_table_phys);
     deallocate_user_stack(process.page_table_phys);
     deallocate_elf_regions(&process.elf_regions, process.page_table_phys);
-    // TODO
 }
 
-// TODO : call when cleaning up zombie processes
+// TODO : call when cleaning up zombie processes (maybe when replacing the pid with a new one, check with a flag if the cleanup process is complete, and if not run this)
 pub fn cleanup_process_complete(process : &Process){
     serial_println!("cleanup complete");
     serial_println!("before kernel stack cleanup");
