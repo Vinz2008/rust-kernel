@@ -75,3 +75,5 @@ pub struct Arg {
 }
 
 pub const STDOUT_FD : Fd = Fd(0);
+
+pub const RNG_SEED_SIZE : usize = 32;

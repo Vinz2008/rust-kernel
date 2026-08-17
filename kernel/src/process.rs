@@ -1,11 +1,11 @@
 use core::{num::NonZero, ptr};
 
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
-use shared_consts::{Fd, USER_HEAP_SIZE, USER_HEAP_START};
+use shared_consts::{Fd, RNG_SEED_SIZE, USER_HEAP_SIZE, USER_HEAP_START};
 use spin::Mutex;
 use x86_64::{PhysAddr, VirtAddr, instructions::interrupts::without_interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
-use crate::{allocator::{allocate_userspace_level_4_table, deallocate_userspace_page_tables, deallocate_virtual_page}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, map_page_at_in, map_page_phys_at_in, translate_addr_in}, scheduler::{KernelContext, ReadyMode, SCHEDULER, Scheduler, SchedulerState, idle_main}, serial_println, sse::{DEFAULT_FXSTATE, FxState}, userspace::{USER_STACK_SIZE, USER_STACK_TOP}, utils::Registers};
+use crate::{allocator::{allocate_userspace_level_4_table, deallocate_userspace_page_tables, deallocate_virtual_page}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, map_page_at_in, map_page_phys_at_in, translate_addr_in}, random::random_bytes, scheduler::{KernelContext, ReadyMode, SCHEDULER, Scheduler, SchedulerState, idle_main}, serial_println, sse::{DEFAULT_FXSTATE, FxState}, userspace::{USER_STACK_SIZE, USER_STACK_TOP}, utils::Registers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pid(pub NonZero<usize>);
@@ -401,8 +401,6 @@ impl Process {
 
         current_stack_ptr &= !0xf;
 
-        Self::write_to_process_stack_u64(page_table, &mut current_stack_ptr, 0);
-
         for &(arg_ptr, arg_len) in args_ptr.iter().rev() {
             Self::write_to_process_stack_u64(page_table, &mut current_stack_ptr, arg_ptr);
             Self::write_to_process_stack_u64(page_table, &mut current_stack_ptr, arg_len as u64);
@@ -410,6 +408,13 @@ impl Process {
 
 
         Self::write_to_process_stack_u64(page_table, &mut current_stack_ptr, args.len() as u64);
+
+        let mut rand_bytes = [0; RNG_SEED_SIZE + 8];
+        random_bytes(&mut rand_bytes);
+        Self::write_to_process_stack_bytes(page_table, &mut current_stack_ptr, &rand_bytes[..RNG_SEED_SIZE]);
+
+        let stack_canary = u64::from_ne_bytes(rand_bytes[RNG_SEED_SIZE..].try_into().unwrap());
+        Self::write_to_process_stack_u64(page_table, &mut current_stack_ptr, stack_canary);
 
         debug_assert_eq!(current_stack_ptr % 16, 0);
         current_stack_ptr as usize
