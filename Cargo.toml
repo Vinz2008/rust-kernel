@@ -2,11 +2,12 @@
 resolver = "3"
 members = [
     "kernel",
-    "init",
     "rt",
+    "shared_consts",
+    "userspace/init",
     "userspace/cli",
     "userspace/ls", 
-    "shared_consts", "userspace/shutdown", "userspace/touch", "userspace/cat", "userspace/reboot",
+    "userspace/shutdown", "userspace/touch", "userspace/cat", "userspace/reboot",
 ]
 default-members = ["kernel"]
 exclude = [

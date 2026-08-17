@@ -10,4 +10,4 @@ test = false
 bench = false
 
 [dependencies]
-rt = { path = "../rt" }
+rt = { path = "../../rt" }

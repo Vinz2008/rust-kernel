@@ -195,7 +195,7 @@ pub const INITRD_BYTES : &[u8] = include_bytes!("../initrd.tar");
 
 
 pub fn load_initrd_init() -> ! {
-    let init_path = "/init";
+    let init_path = "/bin/init";
     let process_pid = {
         /*let tar_initrd = TAR_INITRD.lock();
         for (idx, &file) in tar_initrd.headers.iter().enumerate() {
