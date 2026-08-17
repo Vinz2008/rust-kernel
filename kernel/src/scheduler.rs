@@ -128,13 +128,7 @@ pub fn start_first_process(pid : Pid) -> ! {
         SYSCALL_KERNEL_RSP = kernel_stack_top.as_u64();
         
         Cr3::write(page_table_phys, Cr3Flags::empty());
-        
-        let test = (kernel_stack_top.as_u64() - 8) as *mut u64;
-        test.write_volatile(0x1234_5678_9abc_def0);
 
-        serial_println!("test");
-
-        //x86_64::instructions::interrupts::enable();
 
         // Interrupts become enabled only after iretq. equivalent of interrupts enable
         let user_rflags = regs.rflags | RFlags::INTERRUPT_FLAG.bits();
