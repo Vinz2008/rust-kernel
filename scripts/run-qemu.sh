@@ -13,6 +13,13 @@ if [ "$SIZE" -lt "$MIN_SIZE" ]; then
     truncate -s "$MIN_SIZE" "$IMAGE"
 fi
 
+TEST_DISK="disk.img"
+
+if [ ! -f "$TEST_DISK" ]; then
+    qemu-img create -f raw "$TEST_DISK" 64M
+fi
+
 exec qemu-system-x86_64 \
     -drive "format=raw,file=$IMAGE" \
+    -drive format=raw,file=$TEST_DISK,id=disk2 \
     "$@"

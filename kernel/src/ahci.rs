@@ -4,7 +4,9 @@ use x86_64::{registers::control::Cr3, structures::{idt::InterruptStackFrame, pag
 
 use crate::{allocator::MEMORY_MANAGER, apic::TIMER_HZ, interrupts::{InterruptIndex, end_of_interrupt, ticks}, mmio::{self, MmioRegister, Reserved}, paging::{PHYSICAL_MEMORY_OFFSET, map_page_phys_at_in}, pcie::{PciBarKind, PcieDevice, enable_msi}, serial_println};
 
-// TODO : finish this
+// TODO : better error handling in this whole file
+
+// TODO : use bitflags to simplify using certain bitss
 
 // HBA registers
 
@@ -78,8 +80,11 @@ enum SataType {
 
 fn get_port_type(port : &HBAPort) -> Option<SataType> {
     let ssts = port.sata_status.read();
-    let ipm = (ssts >> 8) as u8;
-    let det = ssts as u8;
+
+    let det = (ssts & 0xF) as u8;
+    let ipm = ((ssts >> 8) & 0xF) as u8;
+
+    serial_println!("ipm = {}, det = {}", ipm, det);
 
     if det != HBA_PORT_DET_PRESENT {
         return None;
@@ -117,15 +122,16 @@ struct ReceivedFis {
     data: [u8; 256],
 }
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 struct PrdtEntry {
-    data_base_address: u32,
+    data_base_address_lower: u32,
     data_base_address_upper: u32,
     reserved: u32,
     dbc_i: u32,
 }
 
-#[repr(C)]
+#[repr(C, align(128))]
 struct CommandTable<const N: usize> {
     command_fis: [u8; 64],
     atapi_command: [u8; 16],
@@ -138,7 +144,7 @@ struct AhciPortDma {
     command_list: CommandList,
     received_fis: ReceivedFis,
     command_table: CommandTable<1>, // TODO : see how much needed, for now 1
-    _padding: [u8; 2672],
+    _padding: [u8; 2560],
 }
 
 struct DmaData {
@@ -185,35 +191,13 @@ const SSTS_DET_PRESENT: u32 = 0x3;
 const SSTS_IPM_ACTIVE: u32 = 0x1 << 8;
 
 fn reset_port(port : &HBAPort){
-    serial_println!(
-        "before reset: SSTS={:#x} SCTL={:#x} CMD={:#x}",
-        port.sata_status.read(),
-        port.sata_control.read(),
-        port.cmd.read(),
-    );
     port.sata_control.update(|sctl| (sctl & !SCTL_DET_MASK) | SCTL_DET_INIT);
-    serial_println!(
-        "DET=1: SSTS={:#x} SCTL={:#x}",
-        port.sata_status.read(),
-        port.sata_control.read(),
-    );
+    
     sleep_ms(1);
+
     port.sata_control.update(|sctl| (sctl & !SCTL_DET_MASK) | SCTL_DET_NONE);
 
-    serial_println!(
-        "DET=0: SSTS={:#x} SCTL={:#x}",
-        port.sata_status.read(),
-        port.sata_control.read(),
-    );
-
     if !wait_with_timeout(1000, || port.sata_status.read() & SSTS_DET_MASK == SSTS_DET_PRESENT){
-        serial_println!(
-            "timeout: SSTS={:#x} SCTL={:#x} CMD={:#x} SERR={:#x}",
-            port.sata_status.read(),
-            port.sata_control.read(),
-            port.cmd.read(),
-            port.sata_err.read(),
-        );
         panic!("AHCI port COMRESET timeout");
     }
     port.sata_err.write(u32::MAX);
@@ -228,8 +212,125 @@ fn start_port(port : &HBAPort){
     port.cmd.update(|v| v | PXCMD_ST);
 }
 
+#[repr(C)]
+struct FisRegHostToDev {
+    fis_type: u8,
+    pmport_c: u8,
+    command: u8,
+    feature_low: u8,
+
+    lba0: u8,
+    lba1: u8,
+    lba2: u8,
+    device: u8,
+
+    lba3: u8,
+    lba4: u8,
+    lba5: u8,
+    feature_high: u8,
+
+    count_low: u8,
+    count_high: u8,
+    icc: u8,
+    control: u8,
+
+    reserved: [u8; 4],
+}
+
+const FIS_REG_HOST_TO_DEV_IN_DWORDS: u16 = 5; // size of FisRegHostToDev in dwords, so 20 bytes / 4 = 5
+
+const FIS_TYPE_REG_H2D: u8 = 0x27;
+const FIS_COMMAND: u8 = 1 << 7;
+
+const ATA_CMD_IDENTIFY: u8 = 0xEC;
+
+const ATA_STATUS_BUSY: u32 = 1 << 7;
+const ATA_STATUS_DRQ: u32 = 1 << 3;
+
+const PXIS_TFES: u32 = 1 << 30;
+
+// TODO : interpret this data
+// TODO : use bitflags to simplify this ? see https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ata/ns-ata-_identify_device_data
+#[derive(Debug)]
+#[repr(C)]
+struct AtaIdentify {
+    general_config: u16,          // 0
+    _words_1_9: [u16; 9],
+
+    serial_number: [u16; 10],    // 10..19
+
+    _words_20_22: [u16; 3],
+
+    firmware_revision: [u16; 4], // 23..26
+    model_number: [u16; 20],     // 27..46
+
+    _words_47_82: [u16; 36],
+
+    command_set_support_83: u16, // 83
+
+    _words_84_99: [u16; 16],
+
+    lba48_sector_count: [u16; 4], // 100..103
+
+    _words_104_255: [u16; 152],
+}
+
+const _: () = assert!(core::mem::size_of::<AtaIdentify>() == 512);
+
 fn init_sata_drive(port_dma : DmaData, hba_port : &HBAPort){
+    // do a IDENTIFY_DEVICE command to get infos
+    // TODO : move this in a function ?
+    // TODO : just keep this/these buffers/frames for other allocations ? (or add a better allocation API, for contiguous virtual memory, contiguous physical memory, etc)
+    let identify_buffer_frame: PhysFrame<Size4KiB> = MEMORY_MANAGER.get().unwrap().lock().frame_allocator.allocate_frame().unwrap();
+    let identity_buffer_virt = PHYSICAL_MEMORY_OFFSET + identify_buffer_frame.start_address().as_u64();
     
+    let table = &mut port_dma.ahci_port_dma.command_table;
+    table.command_fis.fill(0);
+    table.atapi_command.fill(0);
+    table.reserved.fill(0);
+
+    const HEADER_SLOT: usize = 0;
+
+    let header = &mut port_dma.ahci_port_dma.command_list.headers[HEADER_SLOT];
+    header.flags = FIS_REG_HOST_TO_DEV_IN_DWORDS;
+    header.prdt_length = 1; // 1 contiguous 512 bytes buffer
+    header.prdbc = 0;
+
+    let fis = unsafe {
+        &mut *(table.command_fis.as_mut_ptr() as *mut FisRegHostToDev)
+    };
+    fis.fis_type = FIS_TYPE_REG_H2D;
+    fis.pmport_c = FIS_COMMAND;
+    fis.command = ATA_CMD_IDENTIFY;
+
+    let identity_buf_phys = identify_buffer_frame.start_address().as_u64();
+    let prdt = &mut table.prdt[0];
+    prdt.data_base_address_lower = identity_buf_phys as u32;
+    prdt.data_base_address_upper = (identity_buf_phys >> 32) as u32;
+    prdt.reserved = 0;
+    prdt.dbc_i = 512 - 1; // byte count - 1
+
+    hba_port.interrupt_status.write(0);
+    
+    if !wait_with_timeout(1000, || hba_port.task_file_data.read() & (ATA_STATUS_BUSY | ATA_STATUS_DRQ) == 0){
+        panic!("AHCI IDENTIFY: device remained busy");
+    }
+
+    hba_port.cmd_issue.write(1 << HEADER_SLOT);
+
+    if !wait_with_timeout(1000, || hba_port.cmd_issue.read() & (1 << HEADER_SLOT) == 0){
+        panic!("AHCI IDENTIFY timeout");
+    }
+
+    // check for command failure
+    let is = hba_port.interrupt_status.read();
+    if is & PXIS_TFES != 0 {
+        panic!("AHCI IDENTIFY task-file error: PxIS={:#x}, PxTFD={:#x}, PxSERR={:#x}", is, hba_port.task_file_data.read(), hba_port.sata_err.read());
+    }
+
+    let ata_identify = unsafe { &*identity_buffer_virt.as_ptr::<AtaIdentify>() };
+    serial_println!("ATA IDENTIFY : {:?}", ata_identify);
+
 }
 
 fn init_port(hba_port : &HBAPort){
@@ -278,19 +379,25 @@ fn init_port(hba_port : &HBAPort){
         return;
     }
 
-    //hba_port.interrupt_enable.write(0); // TODO : enable interrupts ?
+    hba_port.interrupt_enable.write(0); // TODO : enable interrupts ?
 
-    //start_port(hba_port);
+    start_port(hba_port);
 
     if let Some(sata_type) = get_port_type(hba_port){
         match sata_type {
             SataType::Sata => {
                 init_sata_drive(port_dma, hba_port);
             },
-            SataType::Satapi => panic!("Satapi drive not supported"), // TODO ?
+            SataType::Satapi => {
+                // TODO ?
+                serial_println!("AHCI: SATAPI device found, unsupported for now");
+                return;
+            },
             SataType::Semb => panic!("Semb drive not supported"),
             SataType::PM => panic!("Port Multiplier drive not supported")
         }
+    } else {
+        panic!("unknown sata type");
     }
 }
 
