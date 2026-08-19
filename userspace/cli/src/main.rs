@@ -43,6 +43,7 @@ fn handle_cli(cli : &str){
             syscall_change_cwd(dir);
         }
         cmd_name => {
+            // TODO : handle paths for exes
             let mut path = String::new();
             path.push_str("/bin/");
             path.push_str(cmd_name);

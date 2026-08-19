@@ -89,7 +89,7 @@ pub(crate) fn map_segment(
             let end_frame = PhysFrame::containing_address(phys_start_addr + file_size - 1u64);
 
             let flags = segment.flags;
-            let mut page_table_flags = PageTableFlags::PRESENT;
+            let mut page_table_flags = PageTableFlags::PRESENT | PageTableFlags::GLOBAL;
             if !flags.is_execute() {
                 page_table_flags |= PageTableFlags::NO_EXECUTE
             };

@@ -534,7 +534,7 @@ pub fn init(device : &PcieDevice){
     let page_table_phys = level_4_table_frame.start_address();
 
     for (page, phys_frame) in page_range.zip(frame_range) {
-        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
+        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE | PageTableFlags::GLOBAL;
         match map_page_phys_at_in(page_table_phys, phys_frame, page.start_address(), flags){
             Ok(flush) => {
                 flush.flush();

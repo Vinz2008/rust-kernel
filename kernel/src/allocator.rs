@@ -37,7 +37,7 @@ fn init_heap_mapping<F>(mapper: &mut impl Mapper<Size2MiB>, boot_frame_allocator
 
     for page in page_range {
         let frame = boot_frame_allocator.allocate_frame().ok_or(MapToError::FrameAllocationFailed)?;
-        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
+        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE | PageTableFlags::GLOBAL;
         unsafe {
             mapper.map_to(page, frame, flags, boot_frame_allocator)?.ignore();
         }
