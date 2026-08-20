@@ -6,7 +6,8 @@
 //! blog for an explanation.
 
 #![no_std]
-#![warn(missing_docs)]
+
+use cfg_if::cfg_if;
 
 pub use crate::bootinfo::BootInfo;
 
@@ -37,7 +38,6 @@ macro_rules! entry_point {
         #[export_name = "_start"]
         #[unsafe(naked)]
         pub extern "C" fn __real_start(_boot_info: &'static $crate::bootinfo::BootInfo) -> ! {
-            // TODO : setup stack_chk, call __impl_start
             core::arch::naked_asm!(
                 "mov rax, [rdi + {guard_offset}]",
                 "mov [rip + {stack_guard}], rax",
@@ -55,4 +55,22 @@ macro_rules! entry_point {
             f(boot_info)
         }
     };
+}
+
+cfg_if! {
+    if #[cfg(feature = "binary")]{
+        pub mod common_boot;
+        mod stack_chk;
+        mod frame_allocator;
+        pub mod level4_entries;
+        mod page_table;
+        pub mod printer;
+        pub mod firmware_regions;
+    }
+}
+
+cfg_if! {
+    if #[cfg(all(feature = "binary", feature = "sse"))]{
+        mod sse;  
+    }
 }

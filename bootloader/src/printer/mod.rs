@@ -1,11 +1,15 @@
-#[cfg(not(feature = "vga_320x200"))]
-pub use self::vga_text_80x25::*;
+use cfg_if::cfg_if;
 
-#[cfg(feature = "vga_320x200")]
-pub use self::vga_320x200::*;
+cfg_if! {
+    if #[cfg(feature = "uefi")]{
+        mod uefi;
+        pub use self::uefi::*;
+    } else if #[cfg(feature = "vga_320x200")]{
+        mod vga_320x200;
+        pub use self::vga_320x200::*;
+    } else {
+        pub use self::vga_text_80x25::*;
+        mod vga_text_80x25;
+    }
+}
 
-#[cfg(feature = "vga_320x200")]
-mod vga_320x200;
-
-#[cfg(not(feature = "vga_320x200"))]
-mod vga_text_80x25;

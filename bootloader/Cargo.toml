@@ -10,7 +10,13 @@ build = "build.rs"
 
 [[bin]]
 name = "bootloader"
+path = "bios/main.rs"
 required-features = ["binary"]
+
+[[bin]]
+name = "bootloader-uefi"
+path = "uefi/main.rs"
+required-features = ["binary", "uefi"]
 
 [lib]
 test = false
@@ -18,13 +24,15 @@ bench = false
 
 
 [dependencies]
+cfg-if = "1.0.4"
 xmas-elf = { version = "0.6.2", optional = true }
 x86_64 = { version = "0.14.7", optional = true, default-features = false, features = ["instructions", "inline_asm"] }
 usize_conversions = { version = "0.2.0", optional = true }
 fixedvec = { version = "0.2.4", optional = true }
 bit_field = { version = "0.10.0", optional = true }
-#rlibc = { version = "1.0.0", optional = true }
 raw-cpuid = { version = "11.6.0", optional = true }
+uefi = { version = "0.39", optional = true }
+spin = { version = "0.12.0", optional = true }
 
 [dependencies.font8x8]
 version = "0.2.4"
@@ -38,11 +46,12 @@ toml = { version = "0.5.1", optional = true }
 
 [features]
 default = []
-binary = ["xmas-elf", "x86_64", "usize_conversions", "fixedvec", "llvm-tools", "toml", "raw-cpuid"]
+binary = ["xmas-elf", "x86_64", "usize_conversions", "fixedvec", "llvm-tools", "toml", "raw-cpuid", "spin"]
 vga_320x200 = ["font8x8"]
 recursive_page_table = []
 map_physical_memory = []
 sse = ["bit_field"]
+uefi = [ "dep:uefi", "font8x8" ]
 
 [package.metadata.bootloader]
 target = "x86_64-bootloader.json"
@@ -51,3 +60,7 @@ build-std = "core"
 [package.metadata.docs.rs]
 features = [ "recursive_page_table", "map_physical_memory" ]
 default-target = "x86_64-unknown-linux-gnu"
+
+[profile.release]
+debug = 2
+strip = "none"

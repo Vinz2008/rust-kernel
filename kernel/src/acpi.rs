@@ -136,7 +136,7 @@ pub static ACPI_PLATFORM : Once<AcpiPlatform<MapHandler>> = Once::new();
 
 pub fn init_acpi() -> Result<(), AcpiError> {
     let handler = MapHandler;
-    let rdsp = unsafe { Rsdp::search_for_on_bios(handler)? };
+    let rdsp = unsafe { Rsdp::search_for_on_bios(handler)? }; // TODO : uefi handling ? should I search it in  the bootloader and pass it ? or should I pass a boolean is uefi to the boot infos to handle this in the kernel ?
     let acpi_tables = unsafe { AcpiTables::from_rsdp(handler, rdsp.physical_start)? };
     let acpi_platform = AcpiPlatform::new(acpi_tables, handler)?;
 

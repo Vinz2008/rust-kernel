@@ -47,6 +47,8 @@ pub struct BootInfo {
     /// random value for stack guard
     pub rand_stack_guard : u64, // TODO : instead pass a general source of entropy is needed very early for other things like the stack canary ?
 
+    // TODO : add framebuffer
+    
     _non_exhaustive: u8, // `()` is not FFI safe
 }
 
@@ -55,7 +57,7 @@ impl BootInfo {
     #[allow(unused_variables)]
     #[doc(hidden)]
     pub fn new(
-        memory_map: MemoryMap,
+        memory_map: &MemoryMap,
         tls_template: Option<TlsTemplate>,
         recursive_page_table_addr: u64,
         physical_memory_offset: u64,
@@ -67,7 +69,7 @@ impl BootInfo {
             mem_size: 0,
         });
         BootInfo {
-            memory_map,
+            memory_map: memory_map.clone(),
             tls_template,
             #[cfg(feature = "recursive_page_table")]
             recursive_page_table_addr,

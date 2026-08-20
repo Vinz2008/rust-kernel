@@ -1,27 +1,42 @@
 use core::fmt;
 use core::ops::{Deref, DerefMut};
 
+#[cfg(feature = "uefi")]
+use uefi::boot::{MemoryDescriptor, MemoryType};
+#[cfg(feature = "uefi")]
+use x86_64::structures::paging::{PageSize, Size4KiB};
+
 const PAGE_SIZE: u64 = 4096;
 
-const MAX_MEMORY_MAP_SIZE: usize = 64;
+const MAX_MEMORY_MAP_SIZE: usize = 256;
 
 /// A map of the physical memory regions of the underlying machine.
+#[derive(Clone)]
 #[repr(C)]
 pub struct MemoryMap {
-    entries: [MemoryRegion; MAX_MEMORY_MAP_SIZE],
+    pub entries: [MemoryRegion; MAX_MEMORY_MAP_SIZE],
     // u64 instead of usize so that the structure layout is platform
     // independent
-    next_entry_index: u64,
+    pub next_entry_index: u64,
 }
 
 #[doc(hidden)]
 #[allow(clippy::new_without_default)]
 impl MemoryMap {
-    pub fn new() -> Self {
-        MemoryMap {
-            entries: [MemoryRegion::empty(); MAX_MEMORY_MAP_SIZE],
-            next_entry_index: 0,
+    pub const fn const_new() -> MemoryMap {
+        MemoryMap { 
+            entries: [MemoryRegion::empty(); MAX_MEMORY_MAP_SIZE], 
+            next_entry_index: 0 
         }
+    }
+
+    pub unsafe fn init_at(ptr : *mut MemoryMap) -> &'static mut MemoryMap {
+        let entries = (&raw mut (*ptr).entries).cast::<MemoryRegion>();
+        for i in 0..MAX_MEMORY_MAP_SIZE {
+            entries.add(i).write(MemoryRegion::empty());
+        }
+        (& raw mut (*ptr).next_entry_index).write(0);
+        &mut *ptr
     }
 
     pub fn add_region(&mut self, region: MemoryRegion) {
@@ -98,7 +113,7 @@ pub struct MemoryRegion {
 
 #[doc(hidden)]
 impl MemoryRegion {
-    pub fn empty() -> Self {
+    pub const fn empty() -> Self {
         MemoryRegion {
             range: FrameRange {
                 start_frame_number: 0,
@@ -231,6 +246,24 @@ impl From<E820MemoryRegion> for MemoryRegion {
     }
 }
 
+#[cfg(feature = "uefi")]
+impl From<MemoryDescriptor> for MemoryRegion {
+    fn from(region: MemoryDescriptor) -> MemoryRegion {
+        let region_type = match region.ty {
+            MemoryType::CONVENTIONAL => MemoryRegionType::Usable,
+            MemoryType::ACPI_RECLAIM => MemoryRegionType::AcpiReclaimable,
+            MemoryType::ACPI_NON_VOLATILE => MemoryRegionType::AcpiNvs,
+            MemoryType::UNUSABLE => MemoryRegionType::BadMemory,
+            _ => MemoryRegionType::Reserved, // TODO : add more cases ? (see https://github.com/rust-osdev/bootloader/blob/main/uefi/src/memory_descriptor.rs ?)
+        };
+        MemoryRegion {
+            range: FrameRange::new(region.virt_start, region.virt_start + (region.page_count * Size4KiB::SIZE)),
+            region_type,
+        }
+    }
+}
+
+// TODO : remove this ?
 extern "C" {
     fn _improper_ctypes_check_memory_map(_memory_map: MemoryMap);
 }

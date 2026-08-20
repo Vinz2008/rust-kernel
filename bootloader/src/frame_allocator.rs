@@ -1,8 +1,8 @@
-use super::{frame_range, phys_frame_range};
-use bootloader::bootinfo::{MemoryMap, MemoryRegion, MemoryRegionType};
+use crate::common_boot::{frame_range, phys_frame_range};
+use crate::bootinfo::{MemoryMap, MemoryRegion, MemoryRegionType};
 use x86_64::structures::paging::{frame::PhysFrameRange, PhysFrame};
 
-pub(crate) struct FrameAllocator<'a> {
+pub struct FrameAllocator<'a> {
     pub memory_map: &'a mut MemoryMap,
 }
 

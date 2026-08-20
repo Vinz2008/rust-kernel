@@ -96,13 +96,12 @@ fn main() {
     use toml::Value;
 
     let target = env::var("TARGET").expect("TARGET not set");
-    if Path::new(&target)
-        .file_stem()
-        .expect("target has no file stem")
-        != "x86_64-bootloader"
-    {
-        panic!("The bootloader must be compiled for the `x86_64-bootloader.json` target.");
-    }
+    let target_stem = Path::new(&target).file_stem().expect("target has no file stem");
+    let is_uefi = match target_stem.to_str().unwrap() {
+        "x86_64-unknown-uefi" => true,
+        "x86_64-bootloader" => false,
+        _ => panic!("The bootloader must be compiled for the `x86_64-bootloader.json` target."),
+    };
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
     let kernel = PathBuf::from(match env::var("KERNEL") {
@@ -179,55 +178,59 @@ fn main() {
         process::exit(1);
     }
 
-    // wrap the kernel executable as binary in a new ELF file
-    let stripped_kernel_file_name_replaced = stripped_kernel_file_name
-        .replace('-', "_")
-        .replace('.', "_");
-    let kernel_bin = out_dir.join(format!("kernel_bin-{}.o", kernel_file_name));
-    let kernel_archive = out_dir.join(format!("libkernel_bin-{}.a", kernel_file_name));
-    let mut cmd = Command::new(&objcopy);
-    cmd.arg("-I").arg("binary");
-    cmd.arg("-O").arg("elf64-x86-64");
-    cmd.arg("--binary-architecture=i386:x86-64");
-    cmd.arg("--rename-section").arg(".data=.kernel");
-    cmd.arg("--redefine-sym").arg(format!(
-        "_binary_{}_start=_kernel_start_addr",
-        stripped_kernel_file_name_replaced
-    ));
-    cmd.arg("--redefine-sym").arg(format!(
-        "_binary_{}_end=_kernel_end_addr",
-        stripped_kernel_file_name_replaced
-    ));
-    cmd.arg("--redefine-sym").arg(format!(
-        "_binary_{}_size=_kernel_size",
-        stripped_kernel_file_name_replaced
-    ));
-    cmd.current_dir(&out_dir);
-    cmd.arg(&stripped_kernel_file_name);
-    cmd.arg(&kernel_bin);
-    let exit_status = cmd.status().expect("failed to run objcopy");
-    if !exit_status.success() {
-        eprintln!("Error: Running objcopy failed");
-        process::exit(1);
-    }
-
-    // create an archive for linking
-    let ar = llvm_tools
-        .tool(&llvm_tools::exe("llvm-ar"))
-        .unwrap_or_else(|| {
-            eprintln!("Failed to retrieve llvm-ar component");
-            eprint!("This component is available since nightly-2019-03-29,");
-            eprintln!("so try updating your toolchain if you're using an older nightly");
+    if is_uefi {
+        fs::copy(&stripped_kernel, out_dir.join("kernel.bin")).expect("failed to copy stripped kernel for UEFI");
+    } else {
+        // wrap the kernel executable as binary in a new ELF file
+        let stripped_kernel_file_name_replaced = stripped_kernel_file_name
+            .replace('-', "_")
+            .replace('.', "_");
+        let kernel_bin = out_dir.join(format!("kernel_bin-{}.o", kernel_file_name));
+        let kernel_archive = out_dir.join(format!("libkernel_bin-{}.a", kernel_file_name));
+        let mut cmd = Command::new(&objcopy);
+        cmd.arg("-I").arg("binary");
+        cmd.arg("-O").arg("elf64-x86-64");
+        cmd.arg("--binary-architecture=i386:x86-64");
+        cmd.arg("--rename-section").arg(".data=.kernel");
+        cmd.arg("--redefine-sym").arg(format!(
+            "_binary_{}_start=_kernel_start_addr",
+            stripped_kernel_file_name_replaced
+        ));
+        cmd.arg("--redefine-sym").arg(format!(
+            "_binary_{}_end=_kernel_end_addr",
+            stripped_kernel_file_name_replaced
+        ));
+        cmd.arg("--redefine-sym").arg(format!(
+            "_binary_{}_size=_kernel_size",
+            stripped_kernel_file_name_replaced
+        ));
+        cmd.current_dir(&out_dir);
+        cmd.arg(&stripped_kernel_file_name);
+        cmd.arg(&kernel_bin);
+        let exit_status = cmd.status().expect("failed to run objcopy");
+        if !exit_status.success() {
+            eprintln!("Error: Running objcopy failed");
             process::exit(1);
-        });
-    let mut cmd = Command::new(ar);
-    cmd.arg("crs");
-    cmd.arg(&kernel_archive);
-    cmd.arg(&kernel_bin);
-    let exit_status = cmd.status().expect("failed to run ar");
-    if !exit_status.success() {
-        eprintln!("Error: Running ar failed");
-        process::exit(1);
+        }
+
+        // create an archive for linking
+        let ar = llvm_tools
+            .tool(&llvm_tools::exe("llvm-ar"))
+            .unwrap_or_else(|| {
+                eprintln!("Failed to retrieve llvm-ar component");
+                eprint!("This component is available since nightly-2019-03-29,");
+                eprintln!("so try updating your toolchain if you're using an older nightly");
+                process::exit(1);
+            });
+        let mut cmd = Command::new(ar);
+        cmd.arg("crs");
+        cmd.arg(&kernel_archive);
+        cmd.arg(&kernel_bin);
+        let exit_status = cmd.status().expect("failed to run ar");
+        if !exit_status.success() {
+            eprintln!("Error: Running ar failed");
+            process::exit(1);
+        }
     }
 
     // Parse the kernel's Cargo.toml which is given to us by bootimage
@@ -286,29 +289,36 @@ fn main() {
     )
     .expect("write to bootloader_config.rs failed");
 
-    // pass link arguments to rustc
-    println!("cargo:rustc-link-search=native={}", out_dir.display());
-    println!(
-        "cargo:rustc-link-lib=static=kernel_bin-{}",
-        kernel_file_name
-    );
+    if !is_uefi {
+        // pass link arguments to rustc
+        println!("cargo:rustc-link-search=native={}", out_dir.display());
+        println!(
+            "cargo:rustc-link-lib=static=kernel_bin-{}",
+            kernel_file_name
+        );
+    }
 
     let manifest_dir = PathBuf::from(
         env::var("CARGO_MANIFEST_DIR")
             .expect("CARGO_MANIFEST_DIR not set"),
         );
 
-    let linker_script = manifest_dir.join("linker.ld");
 
-    println!(
-        "cargo:rustc-link-arg=--script={}",
-        linker_script.display()
-    );
 
-    println!(
-        "cargo:rerun-if-changed={}",
-        linker_script.display()
-    );
+    if !is_uefi {
+        let linker_script = manifest_dir.join("linker.ld");
+
+        println!(
+            "cargo:rustc-link-arg=--script={}",
+            linker_script.display()
+        );
+
+        println!(
+            "cargo:rerun-if-changed={}",
+            linker_script.display()
+        );
+    }
+    
 
     println!("cargo:rerun-if-env-changed=KERNEL");
     println!("cargo:rerun-if-env-changed=KERNEL_MANIFEST");
