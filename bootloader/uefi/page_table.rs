@@ -1,7 +1,6 @@
 use core::ptr::NonNull;
 
 use x86_64::{PhysAddr, registers::control::Cr3};
-use uefi::boot;
 use x86_64::structures::paging::{PageTable, PhysFrame, Size4KiB};
 
 pub fn allocate_level4_page_table(new_p4_addr : NonNull<u8>) -> PhysAddr {

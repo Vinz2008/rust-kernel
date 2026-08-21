@@ -16,10 +16,9 @@ exclude = [
 
 [profile.release]
 opt-level = 2
-#strip = "symbols" # TODO : add it again
-# for debug, TODO : remove it
-debug = 2
-strip = "none"
+strip = "symbols"
+# debug = 2
+# strip = "none"
 
 overflow-checks = true
 lto = "fat"

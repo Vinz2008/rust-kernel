@@ -4,12 +4,13 @@ set -eu
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+
 cd ../
 # TODO : reenable release mode ?
-#./build.sh --release
-./build.sh
 KERNEL="$(pwd)/target/x86_64-unknown-kernel/release/rust-kernel"
-KERNEL_MANIFEST="$(pwd)/Cargo.toml"
+KERNEL_MANIFEST="$(pwd)/kernel/Cargo.toml"
+
+./build.sh --release
 cd bootloader
 
 KERNEL="$KERNEL" \

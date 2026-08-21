@@ -3,6 +3,7 @@
 
 use crate::memory_map::create_memory_map;
 use crate::page_table::allocate_level4_page_table;
+use crate::rsdp::find_rsdp;
 
 use bootloader::bootinfo::MemoryMap;
 use bootloader::printer::Printer;
@@ -19,6 +20,7 @@ static KERNEL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/kernel.bin"));
 
 mod memory_map;
 mod page_table;
+mod rsdp;
 
 #[uefi::entry]
 fn main() -> Status {
@@ -62,11 +64,13 @@ fn main() -> Status {
 
     Printer::init(framebuffer);
 
+    let rsdp = find_rsdp().expect("RSDP not found");
+
     let uefi_memory_map = unsafe { uefi::boot::exit_boot_services(None) };
 
     let memory_map = create_memory_map(uefi_memory_map, map_storage.as_ptr().cast::<MemoryMap>());
 
     let new_p4_phys = allocate_level4_page_table(new_p4_addr);
 
-    bootloader_main(KERNEL, memory_map, None, None, bootloader_start, bootloader_end, new_p4_phys)
+    bootloader_main(KERNEL, memory_map, None, None, bootloader_start, bootloader_end, new_p4_phys, Some(rsdp))
 }

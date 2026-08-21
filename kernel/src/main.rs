@@ -118,12 +118,14 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     enable_security_features();
 
+    serial_println!("boot phys offset = {:#x}", boot_info.physical_memory_offset);
+
     let mapper = unsafe { paging::init() };
     let boot_frame_allocator = unsafe { paging::BootInfoFrameAllocator::init(&boot_info.memory_map) };
 
     allocator::init_heap(mapper, boot_frame_allocator).expect("heap initialization failed");
 
-    init_acpi().unwrap();
+    init_acpi(boot_info.rsdp_addr).unwrap();
 
     init_rtc();
 

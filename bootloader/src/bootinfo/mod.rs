@@ -47,6 +47,8 @@ pub struct BootInfo {
     /// random value for stack guard
     pub rand_stack_guard : u64, // TODO : instead pass a general source of entropy is needed very early for other things like the stack canary ?
 
+    pub rsdp_addr: u64,
+
     // TODO : add framebuffer
     
     _non_exhaustive: u8, // `()` is not FFI safe
@@ -62,6 +64,7 @@ impl BootInfo {
         recursive_page_table_addr: u64,
         physical_memory_offset: u64,
         stack_guard : u64,
+        rsdp_addr : u64,
     ) -> Self {
         let tls_template = tls_template.unwrap_or(TlsTemplate {
             start_addr: 0,
@@ -76,6 +79,7 @@ impl BootInfo {
             #[cfg(feature = "map_physical_memory")]
             physical_memory_offset,
             rand_stack_guard: stack_guard,
+            rsdp_addr,
             _non_exhaustive: 0,
         }
     }

@@ -1,7 +1,7 @@
 use core::convert::TryInto;
 use fixedvec::FixedVec;
 use x86_64::{
-    structures::paging::{Page, PageTableIndex},
+    structures::paging::{Page, PageTable, PageTableIndex, PageTableFlags},
     VirtAddr,
 };
 use xmas_elf::program::ProgramHeader64;
@@ -11,12 +11,18 @@ pub struct UsedLevel4Entries {
 }
 
 impl UsedLevel4Entries {
-    pub fn new(segments: &FixedVec<ProgramHeader64>) -> Self {
+    pub fn new(segments: &FixedVec<ProgramHeader64>, page_table : &PageTable) -> Self {
         let mut used = UsedLevel4Entries {
             entry_state: [false; 512],
         };
 
         used.entry_state[0] = true; // TODO: Can we do this dynamically?
+
+        for i in 0..512 {
+            if page_table[i].flags().contains(PageTableFlags::PRESENT) {
+                used.entry_state[i] = true;
+            }
+        }
 
         for segment in segments {
             let start_page: Page = Page::containing_address(VirtAddr::new(segment.virtual_addr));

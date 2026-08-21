@@ -1,6 +1,6 @@
 use core::ptr::NonNull;
 
-use acpi::{AcpiError, AcpiTables, Handler, platform::AcpiPlatform, rsdp::Rsdp};
+use acpi::{AcpiError, AcpiTables, Handler, platform::AcpiPlatform};
 use spin::Once;
 
 use crate::{paging::PHYSICAL_MEMORY_OFFSET};
@@ -134,10 +134,9 @@ impl Handler for MapHandler {
 
 pub static ACPI_PLATFORM : Once<AcpiPlatform<MapHandler>> = Once::new();
 
-pub fn init_acpi() -> Result<(), AcpiError> {
+pub fn init_acpi(rsdp_addr : u64) -> Result<(), AcpiError> {
     let handler = MapHandler;
-    let rdsp = unsafe { Rsdp::search_for_on_bios(handler)? }; // TODO : uefi handling ? should I search it in  the bootloader and pass it ? or should I pass a boolean is uefi to the boot infos to handle this in the kernel ?
-    let acpi_tables = unsafe { AcpiTables::from_rsdp(handler, rdsp.physical_start)? };
+    let acpi_tables = unsafe { AcpiTables::from_rsdp(handler, rsdp_addr as usize)? };
     let acpi_platform = AcpiPlatform::new(acpi_tables, handler)?;
 
     ACPI_PLATFORM.call_once(|| acpi_platform);

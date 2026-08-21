@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "bit_field"
-version = "0.10.1"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcb6dd1c2376d2e096796e234a70e17e94cc2d5d54ff8ce42b28cef1d0d359a4"
+checksum = "1e4b40c7323adcfc0a41c4b88143ed58346ff65a288fc144329c5c45e05d70c6"
 
 [[package]]
 name = "bitflags"
@@ -30,6 +30,7 @@ dependencies = [
  "font8x8",
  "llvm-tools",
  "raw-cpuid",
+ "rsdp",
  "spin",
  "toml",
  "uefi",
@@ -122,6 +123,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "498cd0dc59d73224351ee52a95fee0f1a617a2eae0e7d9d720cc622c73a54186"
 dependencies = [
  "bitflags 2.13.1",
+]
+
+[[package]]
+name = "rsdp"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ed5f33bb98eace335c13cdd159fbfc73ce203b597981a76832dfbb9cbd8101b"
+dependencies = [
+ "log",
 ]
 
 [[package]]

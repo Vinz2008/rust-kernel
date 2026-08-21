@@ -36,11 +36,12 @@ pub fn bootloader_main(
     memory_map: &mut MemoryMap,
     page_table_start: Option<PhysAddr>, // only for BIOS
     page_table_end: Option<PhysAddr>, // only for BIOS
-    bootloader_start: PhysAddr,
+    bootloader_start: PhysAddr, // TODO : make those (bootloader start and end) Option ? because only used in BIOS
     bootloader_end: PhysAddr,
     p4_physical: PhysAddr,
+    rsdp_addr : Option<u64>,
 ) -> ! {
-    use crate::bootinfo::{MemoryRegion, MemoryRegionType};
+    use crate::bootinfo::MemoryRegionType;
     use fixedvec::FixedVec;
     use xmas_elf::program::{ProgramHeader, ProgramHeader64};
 
@@ -73,8 +74,10 @@ pub fn bootloader_main(
         }
     }
 
+    let page_table = unsafe { &mut *(p4_physical.as_u64() as *mut PageTable) };
+
     // Mark used virtual addresses
-    let mut level4_entries = crate::level4_entries::UsedLevel4Entries::new(&segments);
+    let mut level4_entries = crate::level4_entries::UsedLevel4Entries::new(&segments, page_table);
 
     // Enable support for the no-execute bit in page tables.
     enable_nxe_bit();
@@ -89,7 +92,6 @@ pub fn bootloader_main(
     );
 
     // Write the recursive entry into the page table
-    let page_table = unsafe { &mut *(p4_physical.as_u64() as *mut PageTable) };
     page_table[recursive_index] = entry;
     tlb::flush_all();
 
@@ -110,24 +112,7 @@ pub fn bootloader_main(
     };
 
     // Mark already used memory areas in frame allocator.
-    {
-        let zero_frame: PhysFrame = PhysFrame::from_start_address(PhysAddr::new(0)).unwrap();
-        frame_allocator.mark_allocated_region(MemoryRegion {
-            range: frame_range(PhysFrame::range(zero_frame, zero_frame + 1)),
-            region_type: MemoryRegionType::FrameZero,
-        });
-        let bootloader_start_frame = PhysFrame::containing_address(bootloader_start);
-        let bootloader_end_frame = PhysFrame::containing_address(bootloader_end - 1u64);
-        let bootloader_memory_area =
-            PhysFrame::range(bootloader_start_frame, bootloader_end_frame + 1);
-        frame_allocator.mark_allocated_region(MemoryRegion {
-            range: frame_range(bootloader_memory_area),
-            region_type: MemoryRegionType::Bootloader,
-        });
-        
-    
-        reserve_firmware_boot_regions(&mut frame_allocator, kernel, page_table_start, page_table_end);
-    }
+    reserve_firmware_boot_regions(&mut frame_allocator, kernel, page_table_start, page_table_end, bootloader_start, bootloader_end);
 
     // Map a page for the boot info structure
     let boot_info_start_page = {
@@ -226,13 +211,29 @@ pub fn bootloader_main(
 
     let memory_map = frame_allocator.memory_map;
 
+    let rsdp_addr = match rsdp_addr {
+        Some(rsdp_addr) => rsdp_addr,
+        None => {
+            #[cfg(feature = "uefi")]
+            panic!("Rdsp not found");
+
+            #[cfg(not(feature = "uefi"))]
+            unsafe {
+                rsdp::Rsdp::search_for_on_bios(crate::rsdp_bios::RsdpHandler {
+                    phys_offset: physical_memory_offset
+                }).expect("RSDP not found").physical_start() as u64
+            }
+        }
+    };
+
     // Construct boot info structure.
     let mut boot_info = BootInfo::new(
         memory_map,
         kernel_memory_info.tls_segment,
         recursive_page_table_addr.as_u64(),
         physical_memory_offset,
-        guard
+        guard,
+        rsdp_addr,
     );
     boot_info.memory_map.sort();
 
@@ -246,6 +247,24 @@ pub fn bootloader_main(
     enable_write_protect_bit();
 
     enable_global_bit();
+
+        use x86_64::structures::paging::Translate;
+
+let test_virt = VirtAddr::new(
+    physical_memory_offset
+        + p4_physical.as_u64()
+        + 0x900
+);
+
+let translated = rec_page_table.translate_addr(test_virt);
+
+assert_eq!(
+    translated,
+    Some(p4_physical + 0x900 as u64),
+    "physmap does not map current P4: virt={:?}, translated={:?}",
+    test_virt,
+    translated,
+);
 
     if cfg!(not(feature = "recursive_page_table")) {
         // unmap recursive entry

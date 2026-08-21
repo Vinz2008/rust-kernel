@@ -256,8 +256,10 @@ impl From<MemoryDescriptor> for MemoryRegion {
             MemoryType::UNUSABLE => MemoryRegionType::BadMemory,
             _ => MemoryRegionType::Reserved, // TODO : add more cases ? (see https://github.com/rust-osdev/bootloader/blob/main/uefi/src/memory_descriptor.rs ?)
         };
+        let start = region.phys_start;
+        let end = start.checked_add(region.page_count * Size4KiB::SIZE).expect("UEFI memory descriptor overflow");
         MemoryRegion {
-            range: FrameRange::new(region.virt_start, region.virt_start + (region.page_count * Size4KiB::SIZE)),
+            range: FrameRange::new(start, end),
             region_type,
         }
     }

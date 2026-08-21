@@ -70,6 +70,12 @@ cfg_if! {
 }
 
 cfg_if! {
+    if #[cfg(all(feature = "binary", not(feature = "uefi")))]{
+        mod rsdp_bios;
+    }
+}
+
+cfg_if! {
     if #[cfg(all(feature = "binary", feature = "sse"))]{
         mod sse;  
     }

@@ -78,5 +78,6 @@ pub unsafe extern "C" fn stage_4() -> ! {
         PhysAddr::new(bootloader_start),
         PhysAddr::new(bootloader_end),
         PhysAddr::new(p4_physical),
+        None,
     )
 }
