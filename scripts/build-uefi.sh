@@ -6,7 +6,6 @@ cd "$SCRIPT_DIR"
 
 
 cd ../
-# TODO : reenable release mode ?
 KERNEL="$(pwd)/target/x86_64-unknown-kernel/release/rust-kernel"
 KERNEL_MANIFEST="$(pwd)/kernel/Cargo.toml"
 

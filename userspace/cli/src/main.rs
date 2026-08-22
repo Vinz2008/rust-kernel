@@ -65,6 +65,7 @@ fn handle_cli(cli : &str){
 pub extern "Rust" fn main(_args : Args<'_>) -> i32 {
     // TODO : fix the problem with writing being always at the end of the printing and not at the cursor position
     let mut cli = String::new();
+    let mut last_cli = None; // TODO : use this (need to handle the arrow up in the kernel, need to pass an ansi sequence to the userspace, and handle it here)
     print!("> ");
     print::flush_stdout().unwrap(); // TODO : use stderr instead of flushing ?
     
@@ -78,6 +79,7 @@ pub extern "Rust" fn main(_args : Args<'_>) -> i32 {
                 handle_cli(&cli);
                 print!("> ");
                 print::flush_stdout().unwrap();
+                last_cli = Some(cli.clone());
                 cli.clear();
             },
             BACKSPACE => {

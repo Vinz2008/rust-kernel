@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use rt::{Args, fs::File, print, println, shared_consts::READABLE, syscall::{syscall_read}};
+use rt::{Args, fs::{File, IoWrite}, print, println, shared_consts::{READABLE, WRITABLE}, syscall::syscall_read};
 
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main(args : Args<'_>) -> i32 {
@@ -14,6 +14,7 @@ pub extern "Rust" fn main(args : Args<'_>) -> i32 {
     };
 
     let file = File::open(file_path, READABLE).expect("file not found");
+    let mut stdout = File::open("/dev/stdout", WRITABLE).expect("couldn't open stdout");
 
     let mut buf = [0 as u8; 4096];
 
@@ -23,10 +24,9 @@ pub extern "Rust" fn main(args : Args<'_>) -> i32 {
             break;
         }
         // TODO : for now can't print only a str, TODO : just have printing be writing to a files, which is just bytes
-        let str = str::from_utf8(&buf[..count]).expect("can't print file");
-        print!("{}", str);
+        stdout.write(&buf[..count]).expect("write failed to stdout");
     }
-    println!();
+    stdout.write(&[b'\n']).expect("write failed to stdout");
 
     0
 }

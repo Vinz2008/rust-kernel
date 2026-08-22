@@ -54,6 +54,7 @@ impl File {
 }
 
 // TODO
+#[derive(Debug)]
 pub struct IoError;
 
 fn default_write_fmt<W : IoWrite + ?Sized>(this : &mut W, args : fmt::Arguments<'_>) -> Result<(), IoError> {
