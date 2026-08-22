@@ -23,7 +23,6 @@ pub extern "Rust" fn main(args : Args<'_>) -> i32 {
         if count == 0 {
             break;
         }
-        // TODO : for now can't print only a str, TODO : just have printing be writing to a files, which is just bytes
         stdout.write(&buf[..count]).expect("write failed to stdout");
     }
     stdout.write(&[b'\n']).expect("write failed to stdout");
