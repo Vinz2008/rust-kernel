@@ -4,10 +4,20 @@ use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, string::String, sync
 use shared_consts::{DIRENT_DEVICE, DIRENT_DIR, DIRENT_FILE, DirChild, Fd, PATH_NAME_MAX, Stat, StatMode};
 use spin::mutex::Mutex;
 
-use crate::{device::{DeviceOps, Stdout}, initrd::{INITRD_BYTES, TarInitrd}, process::OpenedFile, scheduler::with_scheduler_no_int, serial_println};
+use crate::{device::{DeviceOps, Stdout}, initrd::{INITRD_BYTES, TarInitrd}, process::{FdSlot, OpenedFile}, scheduler::with_scheduler_no_int, serial_println};
 use lazy_static::lazy_static;
 
 // TODO : file permissions (first need users, maybe root/admin user ? search about it)
+
+fn get_file(fd : Fd, fd_list : &[FdSlot]) -> Result<&Arc<OpenedFile>, FileError> {
+    let fd_slot = fd_list.get(fd.get_idx() as usize).ok_or(FileError::FdNotFound)?;
+    if fd_slot.generation != fd.get_gen(){
+        return Err(FileError::FdWrongGen);
+    }
+    let file = fd_slot.opened_file.as_ref().ok_or(FileError::FdNotFound)?;
+    
+    Ok(file)
+}
 
 pub fn process_open_file(path : &str, is_readable : bool, is_writable : bool, create_file : bool) -> Option<Fd> {
     with_scheduler_no_int(|scheduler|{
@@ -36,7 +46,7 @@ pub fn process_get_dir_children(fd : Fd, out : &mut [DirChild]) -> Result<usize,
     let opened_dir = with_scheduler_no_int(|scheduler|{
         let current_proc = scheduler.current_process.unwrap();
         let current_proc = current_proc.get_process(&scheduler.processes);
-        let opened_dir = current_proc.fd_list.get(fd.0).ok_or(FileError::FdNotFound)?.as_ref().cloned().ok_or(FileError::FdNotFound)?;
+        let opened_dir = get_file(fd, &current_proc.fd_list)?.clone();
         Ok(opened_dir)
     })?;
 
@@ -55,7 +65,7 @@ pub fn process_fstat(fd : Fd) -> Result<Stat, FileError> {
     let inode = with_scheduler_no_int(|scheduler|{
         let current_pid = scheduler.current_process.unwrap();
         let current_proc = current_pid.get_process(&scheduler.processes);
-        let opened_file = current_proc.fd_list.get(fd.0).ok_or(FileError::FdNotFound)?.as_ref().ok_or(FileError::FdNotFound)?;
+        let opened_file = get_file(fd, &current_proc.fd_list)?;
         Ok(opened_file.inode.clone())
     })?;
     file_stat_inode(&inode)
@@ -65,7 +75,7 @@ pub fn process_read(fd : Fd, buf : &mut [u8]) -> Result<usize, FileError> {
     let opened_file = with_scheduler_no_int(|scheduler|{
         let current_pid = scheduler.current_process.unwrap();
         let current_proc = current_pid.get_process(&scheduler.processes);
-        let opened_file = current_proc.fd_list.get(fd.0).ok_or(FileError::FdNotFound)?.as_ref().cloned().ok_or(FileError::FdNotFound)?;
+        let opened_file = get_file(fd, &current_proc.fd_list)?.clone();
         Ok(opened_file)
     })?;
     if !opened_file.readable {
@@ -81,7 +91,7 @@ pub fn process_write(fd : Fd, buf : &[u8]) -> Result<usize, FileError> {
     let opened_file = with_scheduler_no_int(|scheduler|{
         let current_pid = scheduler.current_process.unwrap();
         let current_proc = current_pid.get_process(&scheduler.processes);
-        let opened_file = current_proc.fd_list.get(fd.0).ok_or(FileError::FdNotFound)?.as_ref().cloned().ok_or(FileError::FdNotFound)?;
+        let opened_file = get_file(fd, &current_proc.fd_list)?.clone();
         Ok(opened_file)
     })?;
     if !opened_file.writable {
@@ -214,6 +224,7 @@ pub enum FileError {
     FdNotFound,
     NotReadableFile,
     NotWritableFile,
+    FdWrongGen,
 }
 
 fn fix_error_with_path<T>(res : Result<T, FileError>, path : Box<str>) -> Result<T, FileError>{

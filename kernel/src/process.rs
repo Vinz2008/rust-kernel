@@ -39,6 +39,17 @@ pub struct ElfMemRegion {
     pub end: VirtAddr, // exclusive
 }
 
+pub struct FdSlot {
+    pub generation : u32, // generation 0 is None
+    pub opened_file : Option<Arc<OpenedFile>>,
+}
+
+impl FdSlot {
+    fn new(opened_file : Arc<OpenedFile>) -> FdSlot {
+        FdSlot { generation: 1, opened_file: Some(opened_file) }
+    }
+}
+
 pub struct Process {
     pub pid : Pid,
     pub parent : Option<Pid>,
@@ -51,7 +62,7 @@ pub struct Process {
     pub kernel_context : KernelContext,
     pub fxstate : FxState,
     pub cwd_path : String,
-    pub fd_list : Vec<Option<Arc<OpenedFile>>>, // TODO : replace this with a SmallVec ?
+    pub fd_list : Vec<FdSlot>, // TODO : replace this with a SmallVec ?
     pub free_fd_nb : usize,
     pub heap_start : VirtAddr,
     pub heap_break : VirtAddr,
@@ -235,10 +246,10 @@ pub fn destroy_process_because_err(scheduler : &mut Scheduler, new_proc_pid : Pi
     scheduler.mark_dead(new_proc_pid);
 }
 
-fn init_fd_list() -> Result<Vec<Option<Arc<OpenedFile>>>, FileError> {
+fn init_fd_list() -> Result<Vec<FdSlot>, FileError> {
     // TODO : should I cache the inode instead of searching the path ? could make it more performant, + would prevent a security risk in the future by changing the root mount ?
     let v = alloc::vec![
-        Some(OpenedFile::new("/dev/stdout", false, true, false)?)
+        FdSlot::new(OpenedFile::new("/dev/stdout", false, true, false)?)
     ];
 
     Ok(v)
@@ -248,15 +259,17 @@ fn init_fd_list() -> Result<Vec<Option<Arc<OpenedFile>>>, FileError> {
 impl Process {
     pub fn add_opened_file(&mut self, file : Arc<OpenedFile>) -> Fd {
         if self.free_fd_nb == 0 {
-            let fd = self.fd_list.len();
-            self.fd_list.push(Some(file));
-            return Fd(fd);
+            let fd_idx = self.fd_list.len() as u32;
+            self.fd_list.push(FdSlot::new(file));
+            return Fd::new(fd_idx, 1);
         }
         for (idx, f) in self.fd_list.iter_mut().enumerate(){
-            if f.is_none(){
-                *f = Some(file);
+            if f.opened_file.is_none(){
+                f.opened_file = Some(file);
                 self.free_fd_nb -= 1;
-                return Fd(idx);
+                f.generation += 1;
+                let generation = f.generation;
+                return Fd::new(idx as u32, generation);
             }
         }
         
@@ -264,11 +277,11 @@ impl Process {
     }
 
     pub fn remove_opened_file(&mut self, fd: Fd) -> Option<()> {
-        let _ = self.fd_list.get_mut(fd.0)?.take();
+        let _ = self.fd_list.get_mut(fd.get_idx() as usize)?.opened_file.take();
         self.free_fd_nb += 1;
 
         // close all the None at the end (it will keep the allocated part which speeds up the push, and prevent the need to scan the vec for free fd)
-        while let Some(None) = self.fd_list.last(){
+        while let Some(None) = self.fd_list.last().map(|slot| &slot.opened_file) {
             self.fd_list.pop();
             self.free_fd_nb -= 1;
         }

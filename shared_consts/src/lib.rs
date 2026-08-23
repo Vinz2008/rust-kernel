@@ -39,10 +39,43 @@ pub const READABLE : u64 = 0x1;
 pub const WRITABLE : u64 = 0x2;
 pub const CREATE_FILE : u64 = 0x4;
 
-// TODO : add generations to fd (but only on kernel side ? or also on userspace size ?)
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct Fd(pub usize);
+#[derive(Clone, Copy, Debug)]
+pub struct Fd {
+    generation : u32,
+    idx : u32,
+}
+
+// TODO : add a kernel feature which is only built if it is the kernel ? (to separate the interface between both)
+
+impl Fd {
+    pub const fn new(idx : u32, generation : u32) -> Fd {
+        Fd {
+            generation,
+            idx,
+        }
+    }
+
+    pub fn get_idx(&self) -> u32 {
+        self.idx
+    }
+
+    pub fn get_gen(&self) -> u32 {
+        self.generation
+    }
+
+    pub fn from_raw(raw : u64) -> Fd {
+        let generation = (raw >> 32) as u32;
+        let idx = raw as u32;
+        Fd {
+            generation,
+            idx,
+        }
+    }
+
+    pub fn into_raw(self) -> u64 {
+        ((self.generation as u64) << 32) | self.idx as u64
+    }
+}
 
 pub const DIRENT_FILE : u8 = 1;
 pub const DIRENT_DIR : u8 = 2;
@@ -74,6 +107,8 @@ pub struct Arg {
     pub ptr : *const u8,
 }
 
-pub const STDOUT_FD : Fd = Fd(0);
+pub const STDOUT_FD : Fd = Fd::new(0, 1);
 
 pub const RNG_SEED_SIZE : usize = 32;
+
+// TODO : add a pid type to add generations

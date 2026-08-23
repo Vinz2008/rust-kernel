@@ -127,7 +127,7 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
         SYSCALL_GET_CHAR => Some(syscall_get_char(regs)),
         SYSCALL_WAIT_PID => syscall_wait_pid(regs).map(|_| 0),
         SYSCALL_STAT => syscall_stat(regs).map(|_| 0),
-        SYSCALL_OPEN => syscall_open(regs).map(|fd| fd.0 as u64),
+        SYSCALL_OPEN => syscall_open(regs).map(|fd| fd.into_raw()),
         SYSCALL_CLOSE => syscall_close(regs).map(|_| 0),
         SYSCALL_GET_CWD => syscall_get_cwd(regs),
         SYSCALL_GET_DIR_CHILDREN => syscall_get_dir_children(regs),
@@ -376,7 +376,7 @@ fn syscall_open(regs : &mut SyscallRegs) -> Option<Fd> {
 
 fn syscall_close(regs : &mut SyscallRegs) -> Option<()> {
     let fd = regs.get_arg(1);
-    let fd = Fd(fd as usize);
+    let fd = Fd::from_raw(fd);
     process_close_file(fd)
 }
 
@@ -401,7 +401,7 @@ fn syscall_get_dir_children(regs : &mut SyscallRegs) -> Option<u64> {
     let fd = regs.get_arg(1);
     let children_ptr = regs.get_arg(2) as *mut DirChild;
     let children_len = regs.get_arg(3) as usize;
-    let fd = Fd(fd as usize);
+    let fd = Fd::from_raw(fd);
     let children_buf = create_buf(children_ptr, children_len)?;
     
     
@@ -481,7 +481,7 @@ fn syscall_change_cwd(regs : &mut SyscallRegs) -> Option<()> {
 
 fn syscall_fstat(regs : &mut SyscallRegs) -> Option<()>{
     let fd = regs.get_arg(1);
-    let fd = Fd(fd as usize);
+    let fd = Fd::from_raw(fd);
     let stat_ptr = regs.get_arg(2) as *mut Stat;
 
     if !check_ptr(stat_ptr as usize, size_of::<Stat>(), true){
@@ -504,7 +504,7 @@ fn syscall_read(regs : &mut SyscallRegs) -> Option<u64> {
     let buf = regs.get_arg(2) as *mut u8;
     let buf_size = regs.get_arg(3) as usize;
 
-    let fd = Fd(fd as usize);
+    let fd = Fd::from_raw(fd);
     let buf = create_buf(buf, buf_size)?;
 
     let read = process_read(fd, buf).ok()? as u64;
@@ -517,11 +517,11 @@ fn syscall_write(regs : &mut SyscallRegs) -> Option<u64> {
     let buf = regs.get_arg(2) as *const u8;
     let buf_size = regs.get_arg(3) as usize;
 
-    let fd = Fd(fd as usize);
+    let fd = Fd::from_raw(fd);
 
     serial_println!(
-        "syscall_write entered: fd={}, ptr={:#x}, len={}",
-        fd.0,
+        "syscall_write entered: fd={:?}, ptr={:#x}, len={}",
+        fd,
         buf as usize,
         buf_size,
     );

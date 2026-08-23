@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use rt::{Args, fs::{File, IoWrite}, print, println, shared_consts::{READABLE, WRITABLE}, syscall::syscall_read};
+use rt::{Args, fs::{File, IoWrite}, println, shared_consts::{READABLE, WRITABLE}, syscall::syscall_read};
 
 #[unsafe(no_mangle)]
 pub extern "Rust" fn main(args : Args<'_>) -> i32 {

@@ -140,12 +140,12 @@ pub fn syscall_open(path : &str, mode : u64) -> Option<Fd> {
     };
     match ret {
         u64::MAX => None,
-        _ => Some(Fd(ret as usize))
+        _ => Some(Fd::from_raw(ret))
     }
 }
 
 pub fn syscall_close(fd : Fd) -> Option<()> {
-    let fd = fd.0 as u64;
+    let fd = fd.into_raw();
     let ret = unsafe {
         syscall1(SYSCALL_CLOSE, fd)
     };
@@ -176,7 +176,7 @@ pub fn syscall_get_cwd() -> Option<ArrayString<PATH_MAX>> {
 }
 
 pub fn syscall_get_dir_children(fd : Fd, children : &mut [DirChild]) -> Option<usize> {
-    let fd = fd.0 as u64;
+    let fd = fd.into_raw();
     let children_ptr = children.as_mut_ptr() as u64;
     let children_len = children.len() as u64;
     
@@ -222,7 +222,7 @@ pub fn syscall_change_cwd(dir : &str) -> Option<()> {
 
 pub fn syscall_fstat(fd: Fd) -> Option<Stat> {
     let mut stat = MaybeUninit::uninit();
-    let fd = fd.0 as u64;
+    let fd = fd.into_raw();
     let ret = unsafe {
         syscall2(SYSCALL_STAT, fd, stat.as_mut_ptr() as u64)
     };
@@ -233,7 +233,7 @@ pub fn syscall_fstat(fd: Fd) -> Option<Stat> {
 }
 
 pub fn syscall_read(fd : Fd, buf : &mut [u8]) -> Option<usize> {
-    let fd = fd.0 as u64;
+    let fd = fd.into_raw();
     let buf_ptr = buf.as_mut_ptr() as u64;
     let buf_size = buf.len() as u64;
     let ret = unsafe {
@@ -247,7 +247,7 @@ pub fn syscall_read(fd : Fd, buf : &mut [u8]) -> Option<usize> {
 }
 
 pub fn syscall_write(fd : Fd, buf : &[u8]) -> Option<usize> {
-    let fd = fd.0 as u64;
+    let fd = fd.into_raw();
     let buf_ptr = buf.as_ptr() as u64;
     let buf_size = buf.len() as u64;
     let ret = unsafe {
