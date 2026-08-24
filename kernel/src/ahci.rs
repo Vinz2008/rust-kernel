@@ -565,6 +565,9 @@ pub fn init(device : &PcieDevice){
 }
 
 pub extern "x86-interrupt" fn ahci_interrupt_handler(_stack_frame: InterruptStackFrame){
+    unsafe {
+        core::arch::asm!("clac", options(nostack));
+    }
     // TODO
     end_of_interrupt();
 }

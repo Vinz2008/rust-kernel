@@ -27,7 +27,7 @@ pub fn enable_syscall(){
     Star::write(user_code, user_data, kernel_code, kernel_data).unwrap();
     LStar::write(VirtAddr::new(syscall_instr_entry as *const () as u64));
 
-    SFMask::write(RFlags::INTERRUPT_FLAG | RFlags::TRAP_FLAG | RFlags::DIRECTION_FLAG);
+    SFMask::write(RFlags::INTERRUPT_FLAG | RFlags::TRAP_FLAG | RFlags::DIRECTION_FLAG | RFlags::ALIGNMENT_CHECK | RFlags::NESTED_TASK | RFlags::IOPL_LOW | RFlags::IOPL_HIGH);
 
     unsafe {
         Efer::update(|flags| flags.insert(EferFlags::SYSTEM_CALL_EXTENSIONS));

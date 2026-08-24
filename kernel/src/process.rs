@@ -401,10 +401,11 @@ impl Process {
         Self::write_to_process_stack_bytes(page_table, stack_ptr, bytes);
     }
 
-    fn init_process_stack(&self, stack_top : usize, page_table : PhysFrame<Size4KiB>, args : &[&str]) -> usize {
+    fn init_process_stack<S : AsRef<str>>(&self, stack_top : usize, page_table : PhysFrame<Size4KiB>, args : &[S]) -> usize {
         let mut current_stack_ptr = stack_top as u64;
         let mut args_ptr = Vec::with_capacity(args.len());
         for arg in args.iter() {
+            let arg = arg.as_ref();
             Self::write_to_process_stack_bytes(page_table, &mut current_stack_ptr, arg.as_bytes());
             args_ptr.push((current_stack_ptr, arg.len()));
         }
@@ -432,7 +433,7 @@ impl Process {
         current_stack_ptr as usize
     }
 
-    pub fn init_process(&mut self, entrypoint : usize, args : &[&str]){
+    pub fn init_process<S : AsRef<str>>(&mut self, entrypoint : usize, args : &[S]){
 
         let stack_segment = GDT.1.user_data_selector.0 as u64 | 3;
         let code_segment = GDT.1.user_code_selector.0 as u64 | 3;

@@ -1,6 +1,6 @@
-use core::{arch::naked_asm, ops::{ControlFlow, Deref, DerefMut}, ptr};
+use core::{arch::{asm, naked_asm}, ops::{ControlFlow, Deref, DerefMut}, ptr};
 
-use alloc::{slice, str, vec::Vec};
+use alloc::{borrow::ToOwned, slice, str, string::String, vec::Vec};
 use shared_consts::{Arg, CREATE_FILE, DirChild, Fd, READABLE, SHUTDOWN_REBOOT, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_FSTAT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_GET_RANDOM, SYSCALL_OPEN, SYSCALL_READ, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_WRITE, Stat, StatMode, WRITABLE};
 use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
@@ -196,13 +196,13 @@ fn create_str<'a>(str_ptr : *const u8, str_len : usize) -> Option<&'a str> {
     Some(s)
 }
 
-fn create_buf<'a, T>(buf_ptr : *mut T, buf_len : usize) -> Option<&'a mut [T]> {
+/*fn create_buf<'a, T>(buf_ptr : *mut T, buf_len : usize) -> Option<&'a mut [T]> {
     if !check_ptr(buf_ptr as usize, buf_len * size_of::<T>(), true){
         return None;
     }
     let slice = unsafe { slice::from_raw_parts_mut(buf_ptr, buf_len) };
     Some(slice)
-}
+}*/
 
 fn create_buf_const<'a, T>(buf_ptr : *const T, buf_len : usize) -> Option<&'a [T]> {
     if !check_ptr(buf_ptr as usize, buf_len * size_of::<T>(), false){
@@ -210,6 +210,79 @@ fn create_buf_const<'a, T>(buf_ptr : *const T, buf_len : usize) -> Option<&'a [T
     }
     let slice = unsafe { slice::from_raw_parts(buf_ptr, buf_len) };
     Some(slice)
+}
+
+// TODO : to make SMAP useful, randomize the physmap (if it is not, attacker that controls a ptr in the kernel could just pass the virt user address + CONST_PHYS_OFF instead of the virt user address)
+
+#[must_use = "the guard must be kept alive for its Drop implementation"]
+struct SmapGuard(());
+
+impl SmapGuard {
+    #[inline]
+    fn new() -> SmapGuard {
+        unsafe {
+            asm!("stac", options(nomem, nostack, preserves_flags));
+        }
+        SmapGuard(())
+    }
+}
+
+impl Drop for SmapGuard {
+    #[inline]
+    fn drop(&mut self) {
+        unsafe {
+            asm!("clac", options(nomem, nostack, preserves_flags));
+        }
+    }
+}
+
+fn copy_buf_from_user<T : Copy>(user_ptr : *const T, buf_len : usize) -> Option<Vec<T>> {
+    let _smap_guard = SmapGuard::new();
+    let buf = create_buf_const(user_ptr, buf_len)?;
+    let vec = buf.to_vec();
+    Some(vec)
+}
+
+fn copy_str_from_user(user_ptr : *const u8, buf_len : usize) -> Option<String> {
+    let _smap_guard = SmapGuard::new();
+    let buf = create_str(user_ptr, buf_len)?;
+    let str = buf.to_owned();
+    Some(str)
+}
+
+// invariant : need to pass a valid ptr (that was already checked)
+unsafe fn store_to_user<T : Copy>(user_ptr : *mut T, val : T){
+    debug_assert!(check_ptr(user_ptr as usize, size_of::<T>(), true));
+    let _smap_guard = SmapGuard::new();
+    unsafe {
+        *user_ptr = val;
+    }
+}
+
+struct UserBuf<T : Copy> {
+    ptr : *mut T,
+    len : usize,
+}
+
+impl<T : Copy> UserBuf<T>{
+    fn new(user_ptr : *mut T, buf_len : usize) -> Option<UserBuf<T>> {
+        if !check_ptr(user_ptr as usize, buf_len * size_of::<T>(), true){
+            return None;
+        }
+        let user_buf = UserBuf { 
+            ptr: user_ptr, 
+            len: buf_len 
+        };
+        Some(user_buf)
+    }
+}
+
+// TODO : make this a method to UserBuf ?
+fn copy_buf_to_user<T : Copy>(user_buf : UserBuf<T>, data : &[T]) {
+    debug_assert!(user_buf.len == data.len());
+    let _smap_guard = SmapGuard::new();
+    let buf = unsafe { slice::from_raw_parts_mut(user_buf.ptr, user_buf.len) };
+    buf.copy_from_slice(data);
 }
 
 fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
@@ -223,19 +296,18 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
     let args_ptr = regs.get_arg(3) as *const Arg;
     let args_len = regs.get_arg(4);
 
-    let path = create_str(path_ptr, path_len as usize)?;
+    let path = copy_str_from_user(path_ptr, path_len as usize)?;
+
+    let args = copy_buf_from_user(args_ptr, args_len as usize)?;
+
+    let args_strings = args.into_iter().map(|arg| copy_str_from_user(arg.ptr, arg.len)).collect::<Option<Vec<_>>>()?; // TODO : optimize this ?
 
     // TODO : merge this block with_scheduler_no_int with the one next ?
     let canonicalized_path = with_scheduler_no_int(|scheduler|{
         let current_cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes).cwd_path;
-        canonicalize_path(path, current_cwd)
+        canonicalize_path(&path, current_cwd)
     })?;
 
-    let args = create_buf_const(args_ptr, args_len as usize)?;
-
-    
-    let args_strings = args.iter().map(|arg| create_str(arg.ptr, arg.len)).collect::<Option<Vec<_>>>()?; // TODO : optimize this ?
-    
 
     // TODO : merge this with the init executing, by having an run_exe function in userspace.rs
     let inode = get_inode(&canonicalized_path).ok()?;
@@ -350,12 +422,12 @@ fn syscall_stat(regs : &mut SyscallRegs) -> Option<()>{
         return None;
     }
 
-    let path_str = create_str(path_ptr, path_len)?;
+    let path_str = copy_str_from_user(path_ptr, path_len)?;
 
-    let stat = file_stat(path_str).ok()?;
+    let stat = file_stat(&path_str).ok()?;
 
     unsafe {
-        *stat_ptr = stat;
+        store_to_user(stat_ptr, stat);
     }
 
     Some(())
@@ -365,13 +437,13 @@ fn syscall_open(regs : &mut SyscallRegs) -> Option<Fd> {
     let path_ptr = regs.get_arg(1) as *const u8;
     let path_len = regs.get_arg(2) as usize;
     let mode = regs.get_arg(3);
-    let path = create_str(path_ptr, path_len)?;
+    let path = copy_str_from_user(path_ptr, path_len)?;
     // TODO : use the bitflags crate instead ?
     let is_readable = (mode & READABLE) != 0;
     let is_writable = (mode & WRITABLE) != 0;
     let create_file = (mode & CREATE_FILE) != 0;
     serial_println!("syscall open of path {}", path);
-    process_open_file(path, is_readable, is_writable, create_file)
+    process_open_file(&path, is_readable, is_writable, create_file)
 }
 
 fn syscall_close(regs : &mut SyscallRegs) -> Option<()> {
@@ -383,9 +455,11 @@ fn syscall_close(regs : &mut SyscallRegs) -> Option<()> {
 fn syscall_get_cwd(regs : &mut SyscallRegs) -> Option<u64> {
     let cwd_buf = regs.get_arg(1) as *mut u8;
     let cwd_len = regs.get_arg(2) as usize;
-    let cwd_buf = create_buf(cwd_buf, cwd_len)?;
 
-    with_scheduler_no_int(|scheduler|{
+    let cwd_user_buf = UserBuf::new(cwd_buf, cwd_len)?;
+    let mut cwd_buf = alloc::vec![0; cwd_len];
+
+    let cwd_len = with_scheduler_no_int(|scheduler|{
         let cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes).cwd_path;
         serial_println!("cwd in syscall  : {}", cwd);
         serial_println!("cwd.len() > cwd_len : {} > {}", cwd.len(), cwd_len);
@@ -393,8 +467,12 @@ fn syscall_get_cwd(regs : &mut SyscallRegs) -> Option<u64> {
             return None;
         }
         cwd_buf[..cwd.len()].copy_from_slice(cwd.as_bytes());
-        Some(cwd.len() as u64)
-    })
+        Some(cwd.len())
+    })?;
+
+    copy_buf_to_user(cwd_user_buf, &cwd_buf);
+
+    Some(cwd_len as u64)
 }
 
 fn syscall_get_dir_children(regs : &mut SyscallRegs) -> Option<u64> {
@@ -402,10 +480,12 @@ fn syscall_get_dir_children(regs : &mut SyscallRegs) -> Option<u64> {
     let children_ptr = regs.get_arg(2) as *mut DirChild;
     let children_len = regs.get_arg(3) as usize;
     let fd = Fd::from_raw(fd);
-    let children_buf = create_buf(children_ptr, children_len)?;
-    
-    
-    process_get_dir_children(fd, children_buf).ok().map(|nb| nb as u64)
+
+    let children_user_buf = UserBuf::new(children_ptr, children_len)?;
+    let mut children_buf = alloc::vec![DirChild::zeroed(); children_len];
+    let children_nb = process_get_dir_children(fd, &mut children_buf).ok()?;
+    copy_buf_to_user(children_user_buf, &children_buf);
+    Some(children_nb as u64)
 }
 
 fn syscall_sbrk(regs : &mut SyscallRegs) -> Option<u64> {
@@ -463,12 +543,12 @@ fn syscall_change_cwd(regs : &mut SyscallRegs) -> Option<()> {
     let path_ptr = regs.get_arg(1) as *const u8;
     let path_len = regs.get_arg(2) as usize;
 
-    let path = create_str(path_ptr, path_len)?;
+    let path = copy_str_from_user(path_ptr, path_len)?;
 
     with_scheduler_no_int(|scheduler|{
         let canonicalized_path = {
             let current_cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes).cwd_path;
-            canonicalize_path(path, current_cwd)?.into_owned()
+            canonicalize_path(&path, current_cwd)?.into_owned()
         };
         match file_stat(&canonicalized_path) {
             Ok(Stat { mode: StatMode::Directory }) => {},
@@ -491,7 +571,7 @@ fn syscall_fstat(regs : &mut SyscallRegs) -> Option<()>{
     let stat = process_fstat(fd).ok()?;
 
     unsafe {
-        *stat_ptr = stat;
+        store_to_user(stat_ptr, stat);
     }
 
     Some(())
@@ -505,9 +585,12 @@ fn syscall_read(regs : &mut SyscallRegs) -> Option<u64> {
     let buf_size = regs.get_arg(3) as usize;
 
     let fd = Fd::from_raw(fd);
-    let buf = create_buf(buf, buf_size)?;
+    let user_buf = UserBuf::new(buf, buf_size)?;
+    let mut buf = alloc::vec![0; buf_size];
 
-    let read = process_read(fd, buf).ok()? as u64;
+    let read = process_read(fd, &mut buf).ok()? as u64;
+    
+    copy_buf_to_user(user_buf, &buf);
 
     Some(read)
 }
@@ -526,39 +609,22 @@ fn syscall_write(regs : &mut SyscallRegs) -> Option<u64> {
         buf_size,
     );
 
-    //let buf = create_buf_const(buf, buf_size)?;
+    let buf = copy_buf_from_user(buf, buf_size)?;
 
-    let buf = match create_buf_const(buf, buf_size) {
-        Some(buf) => buf,
-        None => {
-            serial_println!("syscall_write: invalid userspace buffer");
-            return None;
-        }
-    };
+    let written = process_write(fd, &buf).ok()? as u64;
 
-    //let written = process_write(fd, buf).ok()? as u64;
-
-    //Some(written)
-
-    match process_write(fd, buf) {
-        Ok(written) => {
-            serial_println!("syscall_write: wrote {} bytes", written);
-            Some(written as u64)
-        }
-
-        Err(error) => {
-            serial_println!("syscall_write failed: {:?}", error);
-            None
-        }
-    }
+    Some(written)
 }
 
 fn syscall_get_random(regs : &mut SyscallRegs) -> Option<()> {
     let buf_ptr = regs.get_arg(1) as *mut u8;
     let buf_len = regs.get_arg(2) as usize;
-    let buf = create_buf(buf_ptr, buf_len)?;
+    let user_buf = UserBuf::new(buf_ptr, buf_len)?;
+    let mut buf = alloc::vec![0; buf_len]; // TODO : in those cases, maybe use a smallvec (depending on the case ?) to not always allocate on the heap, especially when most of the time the buf is small
 
-    random_bytes(buf);
+    random_bytes(&mut buf);
+
+    copy_buf_to_user(user_buf, &buf);
 
     Some(())
 }

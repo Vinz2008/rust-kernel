@@ -3,8 +3,6 @@ use x86_64::registers::control::{Cr4, Cr4Flags};
 
 use crate::serial_println;
 
-// TODO : merge these Cr4 writes if possible (check if they are optimised out ?)
-
 // enable Supervisor Mode Execution Prevention
 fn enable_smep(flags : &mut Cr4Flags, features : Option<&ExtendedFeatures>){
     if !features.is_some_and(|features| features.has_smep()){
@@ -12,6 +10,15 @@ fn enable_smep(flags : &mut Cr4Flags, features : Option<&ExtendedFeatures>){
     }
     flags.insert(Cr4Flags::SUPERVISOR_MODE_EXECUTION_PROTECTION);
     serial_println!("enable SMEP");
+}
+
+// enable Supervisor Mode Access Prevention
+fn enable_smap(flags : &mut Cr4Flags, features : Option<&ExtendedFeatures>){
+    if !features.is_some_and(|features| features.has_smap()){
+        panic!("SMAP needed")
+    }
+    flags.insert(Cr4Flags::SUPERVISOR_MODE_ACCESS_PREVENTION);
+    serial_println!("enable SMAP");
 }
 
 
@@ -35,6 +42,7 @@ pub fn enable_security_features(){
     unsafe {
         Cr4::update(|flags|{
             enable_smep(flags, extended_features.as_ref());
+            enable_smap(flags, extended_features.as_ref());
             enable_umip(flags, extended_features.as_ref());
         });
     }

@@ -145,6 +145,9 @@ fn handle_userspace_page_fault(error_code: PageFaultErrorCode, accessed_addr : O
 
 extern "x86-interrupt" fn page_fault_handler(stack_frame: InterruptStackFrame, error_code: PageFaultErrorCode){
     let accessed_addr = Cr2::read().ok().map(|addr| addr.as_u64() as usize);
+    unsafe {
+        core::arch::asm!("clac", options(nostack));
+    }
     let cs = stack_frame.code_segment.0 as u64;
 
     if is_from_userspace(cs) {
@@ -169,6 +172,9 @@ extern "x86-interrupt" fn page_fault_handler(stack_frame: InterruptStackFrame, e
 pub unsafe extern "C" fn timer_interrupt_stub() -> ! {
     naked_asm!(
         "
+        clac # for if a timer is run during SMAP temporarily disabled
+
+        cld
         push rax
         push rbx
         push rcx
@@ -184,8 +190,6 @@ pub unsafe extern "C" fn timer_interrupt_stub() -> ! {
         push r13
         push r14
         push r15
-
-        cld
 
         mov rdi, rsp # put in rdi the stack pointer to have as arg the reg struct
         call {handler}
@@ -251,6 +255,9 @@ pub static KEYBOARD_RINGBUF : Mutex<RingBuf<char, 512>> = Mutex::new(RingBuf::ne
 static CTRL_DOWN: AtomicBool = AtomicBool::new(false);
 
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
+    unsafe {
+        core::arch::asm!("clac", options(nostack));
+    }
     let mut keyboard = KEYBOARD.lock();
     let mut port = Port::new(0x60);
     let scancode : u8 = unsafe { port.read() };

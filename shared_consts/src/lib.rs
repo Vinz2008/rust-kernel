@@ -21,6 +21,7 @@ pub const SYSCALL_GET_RANDOM : u64 = 15;
 pub const BACKSPACE: char = '\u{0008}';
 pub const BACKSPACE_BYTE : u8 = b'\x08';
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub enum StatMode {
     File {
@@ -30,6 +31,7 @@ pub enum StatMode {
     Device,
 }
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Stat {
     pub mode : StatMode,
@@ -90,6 +92,12 @@ pub struct DirChild {
     pub name : [u8; PATH_NAME_MAX],
 }
 
+impl DirChild {
+    pub fn zeroed() -> DirChild {
+        DirChild { kind: 0, name_len: 0, name: [0; PATH_NAME_MAX] }
+    }
+}
+
 pub const PATH_MAX : usize = 4096; // TODO : add dynamic memory in userspace to use this less
 pub const PATH_NAME_MAX : usize = 255;
 
@@ -101,6 +109,7 @@ pub const SHUTDOWN_SUCCESS : u64 = 0x1;
 pub const SHUTDOWN_FAILURE : u64 = 0x0;
 pub const SHUTDOWN_REBOOT : u64 = 0x2;
 
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Arg {
     pub len : usize,
