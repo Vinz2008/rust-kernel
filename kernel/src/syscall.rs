@@ -4,7 +4,7 @@ use alloc::{borrow::ToOwned, slice, str, string::String, vec::Vec};
 use shared_consts::{Arg, CREATE_FILE, DirChild, Fd, READABLE, SHUTDOWN_REBOOT, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_FSTAT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_GET_RANDOM, SYSCALL_OPEN, SYSCALL_READ, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_WRITE, Stat, StatMode, WRITABLE};
 use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::serial_print_allocs_deallocs, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read, process_write}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table, get_page_flags_in, map_page_at_in, translate_addr_in}, power::{reboot, shutdown}, process::{Pid, Process, cleanup_process_complete, destroy_process_because_err}, random::random_bytes, scheduler::{ReadyMode, SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, serial_println, utils::Registers};
+use crate::{allocator::serial_print_allocs_deallocs, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read, process_write}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table, get_page_flags_in, map_page_at_in, translate_addr_in}, power::{reboot, shutdown}, process::{Pid, Process, cleanup_process_complete, destroy_process_because_err}, random::random_bytes, scheduler::{ReadyMode, SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, security::spectre_fence, serial_println, utils::Registers};
 
 
 const USER_CS: u64 = 0x23;
@@ -184,34 +184,6 @@ fn check_ptr(ptr : usize, len : usize, is_write : bool) -> bool {
     true
 }
 
-fn create_str<'a>(str_ptr : *const u8, str_len : usize) -> Option<&'a str> {
-    if !check_ptr(str_ptr as usize, str_len, false) {
-        return None;
-    }
-    let slice = unsafe { slice::from_raw_parts(str_ptr, str_len) };
-    let s = match str::from_utf8(slice){
-        Ok(s) => s,
-        Err(_) => return None,
-    };
-    Some(s)
-}
-
-/*fn create_buf<'a, T>(buf_ptr : *mut T, buf_len : usize) -> Option<&'a mut [T]> {
-    if !check_ptr(buf_ptr as usize, buf_len * size_of::<T>(), true){
-        return None;
-    }
-    let slice = unsafe { slice::from_raw_parts_mut(buf_ptr, buf_len) };
-    Some(slice)
-}*/
-
-fn create_buf_const<'a, T>(buf_ptr : *const T, buf_len : usize) -> Option<&'a [T]> {
-    if !check_ptr(buf_ptr as usize, buf_len * size_of::<T>(), false){
-        return None;
-    }
-    let slice = unsafe { slice::from_raw_parts(buf_ptr, buf_len) };
-    Some(slice)
-}
-
 // TODO : to make SMAP useful, randomize the physmap (if it is not, attacker that controls a ptr in the kernel could just pass the virt user address + CONST_PHYS_OFF instead of the virt user address)
 
 #[must_use = "the guard must be kept alive for its Drop implementation"]
@@ -221,7 +193,7 @@ impl SmapGuard {
     #[inline]
     fn new() -> SmapGuard {
         unsafe {
-            asm!("stac", options(nomem, nostack, preserves_flags));
+            asm!("stac", options(nostack));
         }
         SmapGuard(())
     }
@@ -231,22 +203,31 @@ impl Drop for SmapGuard {
     #[inline]
     fn drop(&mut self) {
         unsafe {
-            asm!("clac", options(nomem, nostack, preserves_flags));
+            asm!("clac", options(nostack));
         }
     }
 }
 
 fn copy_buf_from_user<T : Copy>(user_ptr : *const T, buf_len : usize) -> Option<Vec<T>> {
     let _smap_guard = SmapGuard::new();
-    let buf = create_buf_const(user_ptr, buf_len)?;
+    if !check_ptr(user_ptr as usize, buf_len * size_of::<T>(), false){
+        return None;
+    }
+    spectre_fence();
+    let buf = unsafe { slice::from_raw_parts(user_ptr, buf_len) };
     let vec = buf.to_vec();
     Some(vec)
 }
 
-fn copy_str_from_user(user_ptr : *const u8, buf_len : usize) -> Option<String> {
+fn copy_str_from_user(user_ptr : *const u8, str_len : usize) -> Option<String> {
     let _smap_guard = SmapGuard::new();
-    let buf = create_str(user_ptr, buf_len)?;
-    let str = buf.to_owned();
+    if !check_ptr(user_ptr as usize, str_len, false) {
+        return None;
+    }
+    spectre_fence();
+    let slice = unsafe { slice::from_raw_parts(user_ptr, str_len) };
+    let str = str::from_utf8(slice).ok()?;
+    let str = str.to_owned();
     Some(str)
 }
 

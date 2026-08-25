@@ -180,6 +180,7 @@ impl fmt::Debug for FrameRange {
 }
 
 /// Represents possible types for memory regions.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 pub enum MemoryRegionType {
@@ -213,10 +214,6 @@ pub enum MemoryRegionType {
     BootInfo,
     /// Memory used for storing the supplied package
     Package,
-    /// Additional variant to ensure that we can add more variants in the future without
-    /// breaking backwards compatibility.
-    #[doc(hidden)]
-    NonExhaustive,
 }
 
 #[doc(hidden)]

@@ -12,16 +12,13 @@ struct BootloaderConfig {
 
 #[cfg(feature = "binary")]
 fn parse_aligned_addr(key: &str, value: &str) -> u64 {
-    let num = if value.starts_with("0x") {
-        u64::from_str_radix(&value[2..], 16)
+    let num = if let Some(stripped) = value.strip_prefix("0x"){
+        u64::from_str_radix(stripped, 16)
     } else {
-        u64::from_str_radix(&value, 10)
+        value.parse()
     };
 
-    let num = num.expect(&format!(
-        "`{}` in the kernel manifest must be an integer (is `{}`)",
-        key, value
-    ));
+    let num = num.unwrap_or_else(|e| panic!("`{}` in the kernel manifest must be an integer (is `{}`) : {e:?}", key, value));
 
     if num % 0x1000 != 0 {
         panic!(
@@ -151,7 +148,7 @@ fn main() {
     cmd.arg(&kernel);
     let output = cmd.output().expect("failed to run llvm-size");
     let output_str = String::from_utf8_lossy(&output.stdout);
-    let second_line_opt = output_str.lines().skip(1).next();
+    let second_line_opt = output_str.lines().nth(1);
     let second_line = second_line_opt.expect("unexpected llvm-size line output");
     let text_size_opt = second_line.split_ascii_whitespace().next();
     let text_size = text_size_opt.expect("unexpected llvm-size output");
@@ -183,8 +180,7 @@ fn main() {
     } else {
         // wrap the kernel executable as binary in a new ELF file
         let stripped_kernel_file_name_replaced = stripped_kernel_file_name
-            .replace('-', "_")
-            .replace('.', "_");
+            .replace(['-', '.'], "_");
         let kernel_bin = out_dir.join(format!("kernel_bin-{}.o", kernel_file_name));
         let kernel_archive = out_dir.join(format!("libkernel_bin-{}.a", kernel_file_name));
         let mut cmd = Command::new(&objcopy);
@@ -248,10 +244,7 @@ fn main() {
         Ok(path) => {
             println!("cargo:rerun-if-changed={}", path);
 
-            let contents = fs::read_to_string(&path).expect(&format!(
-                "failed to read kernel manifest file (path: {})",
-                path
-            ));
+            let contents = fs::read_to_string(&path).unwrap_or_else(|e| panic!("failed to read kernel manifest file (path: {}): {e:?}", path));
 
             let manifest = contents
                 .parse::<Value>()

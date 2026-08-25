@@ -24,7 +24,7 @@ impl AcpiHandler for RsdpHandler {
         }
     }
 
-    fn unmap_physical_region<T>(region: &rsdp::handler::PhysicalMapping<Self, T>) {
+    fn unmap_physical_region<T>(_region: &rsdp::handler::PhysicalMapping<Self, T>) {
         // nothing
     }
 }

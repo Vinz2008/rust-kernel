@@ -1,6 +1,6 @@
 use crate::bootinfo::{BootInfo, FrameRange, MemoryMap};
 use core::arch::asm;
-use core::{convert::TryInto, panic::PanicInfo};
+use core::panic::PanicInfo;
 use core::mem;
 use fixedvec::alloc_stack;
 use x86_64::instructions::tlb;
@@ -84,7 +84,7 @@ pub fn bootloader_main(
 
     // Create a recursive page table entry
     let recursive_index =
-        PageTableIndex::new(level4_entries.get_free_entries(1).try_into().unwrap());
+        PageTableIndex::new(level4_entries.get_free_entries(1).into());
     let mut entry = PageTableEntry::new();
     entry.set_addr(
         p4_physical,
@@ -108,7 +108,7 @@ pub fn bootloader_main(
 
     // Create a frame allocator, which marks allocated frames as used in the memory map.
     let mut frame_allocator = crate::frame_allocator::FrameAllocator {
-        memory_map: memory_map,
+        memory_map,
     };
 
     // Mark already used memory areas in frame allocator.
@@ -171,7 +171,7 @@ pub fn bootloader_main(
     let physical_memory_offset = if cfg!(feature = "map_physical_memory") {
         let physical_memory_offset = PHYSICAL_MEMORY_OFFSET.unwrap_or_else(|| {
             const LEVEL_4_SIZE: u64 = 4096 * 512 * 512 * 512;
-            let level_4_entries = (max_phys_addr + (LEVEL_4_SIZE - 1)) / LEVEL_4_SIZE;
+            let level_4_entries = max_phys_addr.div_ceil(LEVEL_4_SIZE);
             Page::from_page_table_indices_1gib(
                 level4_entries.get_free_entries(level_4_entries),
                 PageTableIndex::new(0),

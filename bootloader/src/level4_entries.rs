@@ -42,7 +42,7 @@ impl UsedLevel4Entries {
             .entry_state
             .windows(num as usize)
             .enumerate()
-            .find(|(_, entries)| entries.iter().all(|&entry| entry == false))
+            .find(|(_, entries)| entries.iter().all(|&entry| !entry))
             .map(|(idx, _)| idx)
             .expect("no usable level 4 entries found");
 

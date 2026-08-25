@@ -5,7 +5,7 @@ use x86_64::structures::paging::RecursivePageTable;
 use crate::frame_allocator::FrameAllocator;
 
 #[cfg(feature = "uefi")]
-pub fn reserve_firmware_boot_regions(_frame_allocator : &mut FrameAllocator<'_>, _kernel : &'static [u8], _page_table_start : Option<PhysAddr>, _page_table_end : Option<PhysAddr>, bootloader_start : PhysAddr, bootloader_end : PhysAddr){
+pub fn reserve_firmware_boot_regions(_frame_allocator : &mut FrameAllocator<'_>, _kernel : &'static [u8], _page_table_start : Option<PhysAddr>, _page_table_end : Option<PhysAddr>, _bootloader_start : PhysAddr, _bootloader_end : PhysAddr){
     // nothing
 }
 
