@@ -51,7 +51,7 @@ impl DeviceOps for Stdin {
             if count == 0 {
                 let mut scheduler_lock = SCHEDULER.lock();
                 let current_pid = scheduler_lock.current_process.unwrap();
-                current_pid.get_process_mut(&mut scheduler_lock.processes).state = SchedulerState::Wait(WaitReason::WaitRead);
+                current_pid.get_process_mut(&mut scheduler_lock.processes).unwrap().state = SchedulerState::Wait(WaitReason::WaitRead);
                 
                 scheduler_lock.processes_waiting_keyboard.add_process(current_pid);
                 return Err(FileError::NoDataYet);

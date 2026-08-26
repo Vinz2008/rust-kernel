@@ -207,16 +207,16 @@ pub fn load_initrd_init() -> ! {
         let init_content = init_node.read_entire_file_in_mem().unwrap();
         
 
-        let process_pid = without_interrupts(|| Process::empty_process("/".to_string(), &mut scheduler_lock));
+        let process_pid = without_interrupts(|| Process::empty_process("/".to_string(), &mut scheduler_lock).unwrap());
 
 
         let elf = {
-            load_elf(&init_content, process_pid.get_process_mut(&mut scheduler_lock.processes))
+            load_elf(&init_content, process_pid.get_process_mut(&mut scheduler_lock.processes).unwrap())
         }.expect("failed loading init");
 
         let entrypoint = elf.ehdr.e_entry;
         
-        let process = process_pid.get_process_mut(&mut scheduler_lock.processes);
+        let process = process_pid.get_process_mut(&mut scheduler_lock.processes).unwrap();
         let args = &[init_path];
         process.init_process(entrypoint as usize, args);
         process_pid

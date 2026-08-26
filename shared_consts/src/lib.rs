@@ -1,5 +1,7 @@
 #![no_std]
 
+use core::num::NonZero;
+
 // TODO : replace this with an enum with numbers for each variant ?
 pub const SYSCALL_EXIT : u64 = 0;
 pub const SYSCALL_EXEC : u64 = 1;
@@ -42,7 +44,7 @@ pub const CREATE_FILE : u64 = 0x4;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Fd {
-    generation : u32,
+    generation : u32,  // TODO : should it be a Option NonZero instead (because generation start really at 1) (could I change it to make it start at 0 ?)
     idx : u32,
 }
 
@@ -122,3 +124,38 @@ pub const STDIN_FD : Fd = Fd::new(2, 1);
 pub const RNG_SEED_SIZE : usize = 32;
 
 // TODO : add a pid type to add generations
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pid {
+    generation : u32, // TODO : should it be a Option NonZero instead (because generation start really at 1) (could I change it to make it start at 0 ?)
+    idx : NonZero<u32>,
+}
+
+impl Pid {
+    pub const fn new(idx : NonZero<u32>, generation : u32) -> Pid {
+        Pid {
+            generation,
+            idx,
+        }
+    }
+
+    pub fn get_idx(&self) -> NonZero<u32> {
+        self.idx
+    }
+
+    pub fn get_gen(&self) -> u32 {
+        self.generation
+    }
+
+    pub fn from_raw(raw : u64) -> Option<Pid> {
+        let generation = (raw >> 32) as u32;
+        let idx = NonZero::new(raw as u32)?;
+        Some(Pid {
+            generation,
+            idx: idx,
+        })
+    }
+
+    pub fn into_raw(self) -> u64 {
+        ((self.generation as u64) << 32) | self.idx.get() as u64
+    }
+}

@@ -1,29 +1,57 @@
-use core::{num::NonZero, ptr};
+use core::{fmt::Debug, num::NonZero, ops::Deref, ptr};
 
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use shared_consts::{Fd, RNG_SEED_SIZE, USER_HEAP_SIZE, USER_HEAP_START};
 use spin::Mutex;
 use x86_64::{PhysAddr, VirtAddr, instructions::interrupts::without_interrupts, registers::{control::Cr3, rflags::RFlags}, structures::paging::{Page, PageTableFlags, PhysFrame, Size4KiB}};
 
-use crate::{allocator::{allocate_userspace_level_4_table, deallocate_userspace_page_tables, deallocate_virtual_page}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, map_page_at_in, map_page_phys_at_in, translate_addr_in}, random::random_bytes, scheduler::{KernelContext, ReadyMode, SCHEDULER, Scheduler, SchedulerState, idle_main}, serial_println, sse::{DEFAULT_FXSTATE, FxState}, userspace::{USER_STACK_SIZE, USER_STACK_TOP}, utils::Registers};
+use crate::{allocator::{allocate_userspace_level_4_table, deallocate_userspace_page_tables, deallocate_virtual_page}, fs::{FileError, Inode, add_inode, get_inode}, gdt::GDT, paging::{PHYSICAL_MEMORY_OFFSET, map_page_at_in, map_page_phys_at_in, translate_addr_in}, random::random_bytes, scheduler::{KernelContext, ProcessSlot, ReadyMode, SCHEDULER, Scheduler, SchedulerState, idle_main}, serial_println, sse::{DEFAULT_FXSTATE, FxState}, userspace::{USER_STACK_SIZE, USER_STACK_TOP}, utils::Registers};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Pid(pub NonZero<usize>);
+
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Pid(shared_consts::Pid);
+
+impl Debug for Pid {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f,  "{:?}", self.0)
+    }
+}
+
+impl Deref for Pid {
+    type Target = shared_consts::Pid;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl Pid {
-    pub const unsafe fn new_unchecked(pid_nb : usize) -> Option<Pid> {
-        match NonZero::new(pid_nb) {
-            Some(pid) => Some(Pid(pid)),
-            None => None,
-        }
+    pub const fn new(pid_idx : NonZero<u32>, generation : u32) -> Pid {
+        Pid(shared_consts::Pid::new(pid_idx, generation))
     }
 
-    pub fn get_process(self, processes : &[Box<Process>]) -> &Process {
-        processes.get(self.0.get()-1).unwrap() // TODO : not unwrap and return Option<&Process> ? or just keep some checks in the syscalls ?
+    pub fn from_raw(raw : u64) -> Option<Pid> {
+        Some(Pid(shared_consts::Pid::from_raw(raw)?))
+    }
+
+    pub fn get_process(self, processes : &[ProcessSlot]) -> Option<&Process> {
+        let slot = processes.get((self.get_idx().get()-1) as usize)?; 
+        if slot.generation != self.get_gen() {
+            serial_println!("get_process generation mismatch, in slot : {}, for pid {:?} : {}", slot.generation, self, self.get_gen());
+            return None;
+        }
+        Some(slot.proc.as_ref())
     }
     
-    pub fn get_process_mut(self, processes : &mut [Box<Process>]) -> &mut Process {
-        processes.get_mut(self.0.get()-1).unwrap()
+    // TODO : not unwrap and return Option<&mut Process> ?
+    pub fn get_process_mut(self, processes : &mut [ProcessSlot]) -> Option<&mut Process> {
+        let slot = processes.get_mut((self.get_idx().get()-1) as usize)?;
+        if slot.generation != self.get_gen() {
+            serial_println!("get_pget_process_mutrocess generation mismatch, in slot : {}, for pid {:?} : {}", slot.generation, self, self.get_gen());
+            return None;
+        }
+        Some(slot.proc.as_mut())
     }
 }
 
@@ -112,7 +140,7 @@ pub const KERNEL_PROC_STACK_GUARD_SIZE: u64 = 4096; // 1 page
 
 pub const KERNEL_PROC_STACK_SLOT_SIZE : u64 = KERNEL_PROC_STACK_GUARD_SIZE + KERNEL_PROC_STACK_SIZE;
 
-fn allocate_kernel_stack(new_process_idx : usize, page_table_phys : PhysFrame) -> u64 {
+fn allocate_kernel_stack(new_process_idx : u32, page_table_phys : PhysFrame) -> u64 {
     // stack starts at the end
     let stack_slot_start = KERNEL_PROC_STACK_BASE + new_process_idx as u64 * KERNEL_PROC_STACK_SLOT_SIZE;
     let stack_start = stack_slot_start + KERNEL_PROC_STACK_GUARD_SIZE;
@@ -235,15 +263,16 @@ pub fn cleanup_process_complete(process : &Process){
 }
 
 // used to destroy completely a process because an error occured, for ex a invalid elf file during loading
-pub fn destroy_process_because_err(scheduler : &mut Scheduler, new_proc_pid : Pid){
-    if let Some(parent) = new_proc_pid.get_process(&scheduler.processes).parent {
-        let child_idx = parent.get_process(&scheduler.processes).children.iter().position(|&pid| pid == new_proc_pid).unwrap();
-        parent.get_process_mut(&mut scheduler.processes).children.swap_remove(child_idx);
+pub fn destroy_process_because_err(scheduler : &mut Scheduler, new_proc_pid : Pid) -> Option<()> {
+    if let Some(parent) = new_proc_pid.get_process(&scheduler.processes)?.parent {
+        let child_idx = parent.get_process(&scheduler.processes)?.children.iter().position(|&pid| pid == new_proc_pid).unwrap();
+        parent.get_process_mut(&mut scheduler.processes)?.children.swap_remove(child_idx);
     }
-    let process = new_proc_pid.get_process(&scheduler.processes);
+    let process = new_proc_pid.get_process(&scheduler.processes)?;
     cleanup_process_mem_soft(process);
     cleanup_process_complete(process);
     scheduler.mark_dead(new_proc_pid);
+    Some(())
 }
 
 fn init_fd_list() -> Result<Vec<FdSlot>, FileError> {
@@ -269,9 +298,8 @@ impl Process {
             if f.opened_file.is_none(){
                 f.opened_file = Some(file);
                 self.free_fd_nb -= 1;
-                f.generation += 1;
-                let generation = f.generation;
-                return Fd::new(idx as u32, generation);
+                f.generation = f.generation.wrapping_add(1);
+                return Fd::new(idx as u32, f.generation);
             }
         }
         
@@ -291,7 +319,7 @@ impl Process {
         Some(())
     }
 
-    pub fn empty_process(cwd_path : String, scheduler : &mut Scheduler) -> Pid {
+    pub fn empty_process(cwd_path : String, scheduler : &mut Scheduler) -> Option<Pid> {
         without_interrupts(||{
             let page_table_phys = allocate_userspace_level_4_table();
             
@@ -299,7 +327,7 @@ impl Process {
 
             map_page_phys_at_in(page_table_phys.start_address(), PhysFrame::containing_address(PhysAddr::new(0xb8000)), VirtAddr::new(0xb8000), PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE).unwrap().flush(); // TODO : should I realy unwrap ?
             let new_process_pid = scheduler.add_process(Process { 
-                pid: Pid(NonZero::new(usize::MAX).unwrap()), // will be replaced in add_process
+                pid: Pid(shared_consts::Pid::new(NonZero::new(u32::MAX).unwrap(), u32::MAX)), // will be replaced in add_process
                 children: Vec::new(),
                 parent: parent_pid,
                 kernel_stack_top: VirtAddr::new(0), // is replaced just after 
@@ -318,31 +346,31 @@ impl Process {
                 elf_regions: Vec::new(),
             });
 
-            let new_process_idx = new_process_pid.0.get() - 1;
+            let new_process_idx = new_process_pid.get_idx().get() - 1;
 
             let stack_end = allocate_kernel_stack(new_process_idx, page_table_phys);
 
-            new_process_pid.get_process_mut(&mut scheduler.processes).kernel_stack_top = VirtAddr::new(stack_end);
+            new_process_pid.get_process_mut(&mut scheduler.processes)?.kernel_stack_top = VirtAddr::new(stack_end);
 
             if let Some(parent_pid) = parent_pid {
-                parent_pid.get_process_mut(&mut scheduler.processes).children.push(new_process_pid);
+                parent_pid.get_process_mut(&mut scheduler.processes)?.children.push(new_process_pid);
             }
 
-            new_process_pid
+            Some(new_process_pid)
         })
     }
 
-    pub const IDLE_PROCESS_PID: Pid = unsafe { Pid::new_unchecked(1).unwrap() };
+    pub const IDLE_PROCESS_PID: Pid = Pid::new(NonZero::new(1).unwrap(), 1);
 
-    pub const INIT_PROCESS_PID : Pid = unsafe { Pid::new_unchecked(2).unwrap() };
+    pub const INIT_PROCESS_PID : Pid = Pid::new(NonZero::new(2).unwrap(), 1);
 
     pub fn init_idle_process(){
         without_interrupts(||{
             let mut scheduler_lock = SCHEDULER.lock();
-            let new_process_idx = scheduler_lock.processes.len();
+            let new_process_idx = scheduler_lock.processes.len() as u32; // TODO : check when adding scheduler if there is too much processes
             let new_process_pid = new_process_idx + 1;
-            debug_assert_eq!(new_process_pid, Process::IDLE_PROCESS_PID.0.get());
-            let new_process_pid = Pid(NonZero::new(new_process_pid).unwrap());
+            debug_assert_eq!(new_process_pid, Process::IDLE_PROCESS_PID.get_idx().get());
+            let new_process_pid = Pid(shared_consts::Pid::new(NonZero::new(new_process_pid).unwrap(), 1));
 
             let (kernel_page_table, _) = Cr3::read();
 
@@ -365,7 +393,7 @@ impl Process {
                 ..Default::default()
             };
 
-            scheduler_lock.processes.push(Box::new(Process { 
+            let proc_box = Box::new(Process { 
                 pid: new_process_pid, 
                 children: Vec::new(),
                 parent: None,
@@ -383,7 +411,12 @@ impl Process {
                 heap_break: VirtAddr::new(0),
                 heap_max: VirtAddr::new(0),
                 elf_regions: Vec::new(),
-            }));
+            });
+
+            scheduler_lock.processes.push(ProcessSlot { 
+                proc: proc_box, 
+                generation: 1,
+            });
         })
     }
 

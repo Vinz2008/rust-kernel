@@ -58,10 +58,15 @@ pub struct WaitHandle {
     queue : Arc<WaitQueue>,
 }*/
 
+pub struct ProcessSlot {
+    pub proc : Box<Process>,
+    pub generation : u32,
+}
+
 
 pub struct Scheduler {
     #[allow(clippy::vec_box)]
-    pub processes : Vec<Box<Process>>, // TODO : maybe use a Option for the process to make it none after complete cleanup, to not use invalid state, (should it be Vec<Box<Option<Process>>> or Vec<Option<Box<Process>>> ?)
+    pub processes : Vec<ProcessSlot>, // TODO : maybe use a Option for the process to make it none after complete cleanup, to not use invalid state, (should it be Vec<Box<Option<Process>>> or Vec<Option<Box<Process>>> ?)
     
     dead_processes_count : usize,
     pub runnable_processes : VecDeque<Pid>,
@@ -71,53 +76,59 @@ pub struct Scheduler {
 }
 
 impl Scheduler {
-    pub fn new_char(&mut self){
+    pub fn new_char(&mut self) -> Option<()> {
         serial_println!("processes_waiting_keyboard = {:?}", self.processes_waiting_keyboard);
         if let Some(pid) = self.processes_waiting_keyboard.pop() {
             // TODO : make this check a debug assert ? test it
-            debug_assert!(matches!(pid.get_process(&self.processes).state, SchedulerState::Wait(WaitReason::WaitRead)));
+            debug_assert!(matches!(pid.get_process(&self.processes).unwrap().state, SchedulerState::Wait(WaitReason::WaitRead)));
             serial_println!("wake keyboard process {:?}", pid);
-            self.make_runnable_inner(pid, ReadyMode::Kernel);
+            self.make_runnable_inner(pid, ReadyMode::Kernel)?;
         }
+        Some(())
     }
 
     pub fn add_process(&mut self, mut process : Process) -> Pid {
         if self.dead_processes_count == 0 {
-            let pid_idx = self.processes.len();
-            let pid = Pid(NonZero::new(pid_idx + 1).unwrap());
+            let pid_idx = self.processes.len() as u32;
+            let pid = Pid::new(NonZero::new(pid_idx + 1).unwrap(), 1); // can unwrap because it will never be 0
             process.pid = pid;
-            self.processes.push(Box::new(process));
+            self.processes.push(ProcessSlot { 
+                proc: Box::new(process), 
+                generation: 1 
+            });
             return pid;
         }
 
-        for (idx, proc) in self.processes.iter_mut().enumerate(){
-            if proc.state == SchedulerState::Dead {
-                **proc = process;
+        for (idx, proc_slot) in self.processes.iter_mut().enumerate(){
+            if proc_slot.proc.state == SchedulerState::Dead {
+                *proc_slot.proc = process;
                 self.dead_processes_count -= 1;
-                return Pid(NonZero::new(idx + 1).unwrap());
+                proc_slot.generation = proc_slot.generation.wrapping_add(1);
+                return Pid::new(NonZero::new((idx + 1) as u32).unwrap(), proc_slot.generation)
             }
         }
 
         unreachable!()
     }
 
-    fn make_runnable_inner(&mut self, pid : Pid, ready_mode : ReadyMode){
-        pid.get_process_mut(&mut self.processes).state = SchedulerState::Ready(ready_mode);
+    fn make_runnable_inner(&mut self, pid : Pid, ready_mode : ReadyMode) -> Option<()> {
+        pid.get_process_mut(&mut self.processes)?.state = SchedulerState::Ready(ready_mode);
         // TODO : remove the contains ? is O(n)
    
         if self.current_process != Some(pid) && !self.runnable_processes.contains(&pid){
             self.runnable_processes.push_back(pid);
         }
+        Some(())
     }
 
-    pub fn make_runnable(&mut self, pid : Pid){
-        self.make_runnable_inner(pid, ReadyMode::User);
+    pub fn make_runnable(&mut self, pid : Pid) -> Option<()>{
+        self.make_runnable_inner(pid, ReadyMode::User)
     }
 
     pub fn requeue_current(&mut self, pid : Pid){
         debug_assert_eq!(self.current_process, Some(pid));
         debug_assert!(matches!(
-            pid.get_process(&self.processes).state,
+            pid.get_process(&self.processes).unwrap().state,
             SchedulerState::Ready(_)
         ));
         debug_assert!(!self.runnable_processes.contains(&pid));
@@ -125,13 +136,14 @@ impl Scheduler {
         self.runnable_processes.push_back(pid);
     }
 
-    pub fn make_runnable_kernel(&mut self, pid : Pid){
-        self.make_runnable_inner(pid, ReadyMode::Kernel);
+    pub fn make_runnable_kernel(&mut self, pid : Pid)  -> Option<()> {
+        self.make_runnable_inner(pid, ReadyMode::Kernel)
     }
 
-    pub fn mark_dead(&mut self, pid: Pid){
-        pid.get_process_mut(&mut self.processes).state = SchedulerState::Dead;
+    pub fn mark_dead(&mut self, pid: Pid) -> Option<()> {
+        pid.get_process_mut(&mut self.processes)?.state = SchedulerState::Dead;
         self.dead_processes_count += 1;
+        Some(())
     }
 }
 
@@ -157,7 +169,7 @@ pub fn start_first_process(pid : Pid) -> ! {
         let mut scheduler_lock = SCHEDULER.lock();
         scheduler_lock.current_process = Some(pid);
 
-        let process = pid.get_process(&scheduler_lock.processes);
+        let process = pid.get_process(&scheduler_lock.processes).unwrap();
         set_tss_privilege_stack(process.kernel_stack_top);
 
         (process.page_table_phys, process.kernel_stack_top, process.saved_regs)
@@ -250,14 +262,14 @@ enum SwitchTarget {
 }
 
 // only call this with no interrupts
-fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, next_pid : Pid, regs : Option<&mut Registers>) -> SwitchTarget {
+fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, next_pid : Pid, regs : Option<&mut Registers>) -> Option<SwitchTarget> {
 
-    serial_println!("scheduling to pid {}", next_pid.0.get());
+    serial_println!("scheduling to pid {:?}", next_pid);
 
     scheduler.current_process = Some(next_pid);
 
     let (next_state, next_page_table_phys, next_kernel_stack_top, next_saved_regs) = {
-        let next_process = next_pid.get_process(&scheduler.processes);
+        let next_process = next_pid.get_process(&scheduler.processes)?;
         (next_process.state, next_process.page_table_phys, next_process.kernel_stack_top, next_process.saved_regs)
     };
 
@@ -270,28 +282,28 @@ fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, nex
     }
 
     if current_pid != next_pid && scheduler.is_fx_used {
-        current_pid.get_process_mut(&mut scheduler.processes).fxstate.save();
+        current_pid.get_process_mut(&mut scheduler.processes)?.fxstate.save();
         scheduler.is_fx_used = false;
     }
 
     let next_is_user = matches!(next_state, SchedulerState::Ready(ReadyMode::User));
 
     if next_is_user && !scheduler.is_fx_used {
-        next_pid.get_process(&scheduler.processes).fxstate.restore();
+        next_pid.get_process(&scheduler.processes)?.fxstate.restore();
         scheduler.is_fx_used = true;
     }
 
 
-    let current_state = current_pid.get_process(&scheduler.processes).state;
+    let current_state = current_pid.get_process(&scheduler.processes)?.state;
 
     let current_is_in_kernel = matches!(current_state, SchedulerState::Wait(_));
 
     match next_state {
         SchedulerState::Ready(ReadyMode::User) => {
-            match regs {
+            let target = match regs {
                 Some(regs) => {
                     if current_is_in_kernel {
-                        let old_ctx = &mut current_pid.get_process_mut(&mut scheduler.processes).kernel_context as *mut KernelContext;
+                        let old_ctx = &mut current_pid.get_process_mut(&mut scheduler.processes)?.kernel_context as *mut KernelContext;
                         SwitchTarget::SwitchKernelToUser { 
                             old_ctx, 
                             regs: next_saved_regs, 
@@ -304,13 +316,14 @@ fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, nex
                 None => {
                     SwitchTarget::SwitchUser(next_saved_regs)
                 }
-            }
+            };
+            Some(target)
         }
         SchedulerState::Ready(ReadyMode::Kernel) => {
             // the addresses will not change because of Vec<Box<Process>>
-            let old_ctx = &mut current_pid.get_process_mut(&mut scheduler.processes).kernel_context as *mut KernelContext;
-            let new_ctx = &next_pid.get_process_mut(&mut scheduler.processes).kernel_context as *const KernelContext;
-            SwitchTarget::SwitchKernelToKernel { old_ctx, new_ctx }
+            let old_ctx = &mut current_pid.get_process_mut(&mut scheduler.processes)?.kernel_context as *mut KernelContext;
+            let new_ctx = &next_pid.get_process_mut(&mut scheduler.processes)?.kernel_context as *const KernelContext;
+            Some(SwitchTarget::SwitchKernelToKernel { old_ctx, new_ctx })
         }
         _ => panic!("scheduled non-ready process {:?}", next_pid),
     }
@@ -361,14 +374,14 @@ pub fn schedule(regs : &mut Registers){
         serial_println!("runnable processes at start of schedule : {:?}", &scheduler.runnable_processes);
 
         let current_pid = scheduler.current_process.unwrap();
-        current_pid.get_process_mut(&mut scheduler.processes).saved_regs = *regs;
+        current_pid.get_process_mut(&mut scheduler.processes).unwrap().saved_regs = *regs;
         
-        let current_is_ready = matches!(current_pid.get_process(&scheduler.processes).state, SchedulerState::Ready(_));
+        let current_is_ready = matches!(current_pid.get_process(&scheduler.processes).unwrap().state, SchedulerState::Ready(_));
 
         let next = match scheduler.runnable_processes.pop_front(){
             Some(next) => {
                 if current_is_ready && current_pid != next {
-                    serial_println!("adding to ready process pid {}", current_pid.0.get());
+                    serial_println!("adding to ready process pid {:?}", current_pid);
                     scheduler.requeue_current(current_pid);
                     //scheduler.make_runnable(current_pid);
                 }
@@ -384,7 +397,7 @@ pub fn schedule(regs : &mut Registers){
             },
         };
         
-        schedule_get_switch_target(scheduler, current_pid, next, Some(regs))
+        schedule_get_switch_target(scheduler, current_pid, next, Some(regs)).expect("bug in schedule (pid generation problem)")
 
     });
     schedule_switch(target);
@@ -399,18 +412,18 @@ pub fn kill_current_and_schedule(exit_code : i32) -> ! {
             panic!("tried to exit init");
         }
 
-        let current = current_pid.get_process_mut(&mut scheduler.processes);
+        let current = current_pid.get_process_mut(&mut scheduler.processes).unwrap();
         cleanup_process_mem_soft(current);
 
         serial_print_allocs_deallocs("after exit soft cleanup");
         
         current.state = SchedulerState::Zombie(exit_code);
         
-        let parent_pid = current_pid.get_process(&scheduler.processes).parent;
+        let parent_pid = current_pid.get_process(&scheduler.processes).unwrap().parent;
     
 
         if let Some(parent_pid) = parent_pid {
-            let parent = parent_pid.get_process_mut(&mut scheduler.processes);
+            let parent = parent_pid.get_process_mut(&mut scheduler.processes).unwrap();
             if parent.state == SchedulerState::Wait(WaitReason::WaitPid(current_pid)) {
                 //parent.state = SchedulerState::Ready(ReadyMode::Kernel);
                 scheduler.make_runnable_kernel(parent_pid);
@@ -418,7 +431,7 @@ pub fn kill_current_and_schedule(exit_code : i32) -> ! {
         }
 
         let next_pid = scheduler.runnable_processes.pop_front().unwrap_or(Process::IDLE_PROCESS_PID);
-        schedule_get_switch_target(scheduler, current_pid, next_pid, None)
+        schedule_get_switch_target(scheduler, current_pid, next_pid, None).unwrap()
     });
     schedule_switch_never_return(target)
 }
@@ -443,7 +456,7 @@ fn idle_schedule(){
         let current_pid = scheduler.current_process.unwrap();
         debug_assert_eq!(current_pid, Process::IDLE_PROCESS_PID);
 
-        schedule_get_switch_target(scheduler, current_pid, next_pid, None)
+        schedule_get_switch_target(scheduler, current_pid, next_pid, None).unwrap()
     });
     schedule_switch(target);
 }

@@ -23,11 +23,11 @@ fn get_file(fd : Fd, fd_list : &[FdSlot]) -> Result<&Arc<OpenedFile>, FileError>
 pub fn process_open_file(path : &str, is_readable : bool, is_writable : bool, create_file : bool) -> Option<Fd> {
     with_scheduler_no_int(|scheduler|{
         let canonicalized_path = {
-            let current_cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes).cwd_path;
+            let current_cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes)?.cwd_path;
             canonicalize_path(path, current_cwd)?
         };
         let current_proc = scheduler.current_process.unwrap();
-        let current_proc = current_proc.get_process_mut(&mut scheduler.processes);
+        let current_proc = current_proc.get_process_mut(&mut scheduler.processes)?;
         
         let opened_file = OpenedFile::new(&canonicalized_path, is_readable, is_writable, create_file).ok()?;
         let fd = current_proc.add_opened_file(opened_file);
@@ -38,7 +38,7 @@ pub fn process_open_file(path : &str, is_readable : bool, is_writable : bool, cr
 pub fn process_close_file(fd : Fd) -> Option<()> {
     with_scheduler_no_int(|scheduler|{
         let current_proc = scheduler.current_process.unwrap();
-        let current_proc = current_proc.get_process_mut(&mut scheduler.processes);
+        let current_proc = current_proc.get_process_mut(&mut scheduler.processes)?;
         current_proc.remove_opened_file(fd)
     })
 }
@@ -46,7 +46,7 @@ pub fn process_close_file(fd : Fd) -> Option<()> {
 pub fn process_get_dir_children(fd : Fd, out : &mut [DirChild]) -> Result<usize, FileError> {
     let opened_dir = with_scheduler_no_int(|scheduler|{
         let current_proc = scheduler.current_process.unwrap();
-        let current_proc = current_proc.get_process(&scheduler.processes);
+        let current_proc = current_proc.get_process(&scheduler.processes).expect("current process doesn't exist anymore (BUG)");
         let opened_dir = get_file(fd, &current_proc.fd_list)?.clone();
         Ok(opened_dir)
     })?;
@@ -65,7 +65,7 @@ pub fn process_get_dir_children(fd : Fd, out : &mut [DirChild]) -> Result<usize,
 pub fn process_fstat(fd : Fd) -> Result<Stat, FileError> {
     let inode = with_scheduler_no_int(|scheduler|{
         let current_pid = scheduler.current_process.unwrap();
-        let current_proc = current_pid.get_process(&scheduler.processes);
+        let current_proc = current_pid.get_process(&scheduler.processes).expect("current process doesn't exist anymore (BUG)");
         let opened_file = get_file(fd, &current_proc.fd_list)?;
         Ok(opened_file.inode.clone())
     })?;
@@ -75,7 +75,7 @@ pub fn process_fstat(fd : Fd) -> Result<Stat, FileError> {
 pub fn process_read(fd : Fd, buf : &mut [u8]) -> Result<usize, FileError> {
     let opened_file = with_scheduler_no_int(|scheduler|{
         let current_pid = scheduler.current_process.unwrap();
-        let current_proc = current_pid.get_process(&scheduler.processes);
+        let current_proc = current_pid.get_process(&scheduler.processes).expect("current process doesn't exist anymore (BUG)");
         let opened_file = get_file(fd, &current_proc.fd_list)?.clone();
         Ok(opened_file)
     })?;
@@ -94,7 +94,7 @@ pub fn process_read(fd : Fd, buf : &mut [u8]) -> Result<usize, FileError> {
 pub fn process_write(fd : Fd, buf : &[u8]) -> Result<usize, FileError> {
     let opened_file = with_scheduler_no_int(|scheduler|{
         let current_pid = scheduler.current_process.unwrap();
-        let current_proc = current_pid.get_process(&scheduler.processes);
+        let current_proc = current_pid.get_process(&scheduler.processes).expect("current process doesn't exist anymore (BUG)");
         let opened_file = get_file(fd, &current_proc.fd_list)?.clone();
         Ok(opened_file)
     })?;

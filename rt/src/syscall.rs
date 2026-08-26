@@ -2,7 +2,7 @@ use core::{hint::unreachable_unchecked, mem::MaybeUninit};
 
 use alloc::vec::Vec;
 use arrayvec::ArrayString;
-use shared_consts::{Arg, DirChild, Fd, PATH_MAX, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_GET_RANDOM, SYSCALL_OPEN, SYSCALL_READ, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_WRITE, Stat};
+use shared_consts::{Arg, DirChild, Fd, PATH_MAX, Pid, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_GET_RANDOM, SYSCALL_OPEN, SYSCALL_READ, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_WRITE, Stat};
 
 pub unsafe fn syscall0(syscall_nb : u64) -> u64 {
     let ret : u64;
@@ -94,7 +94,7 @@ fn str_to_ptr_and_len(s : &str) -> (u64, u64) {
     (s.as_ptr() as u64, s.len() as u64)
 }
 
-pub fn syscall_exec(path : &str, args : &[&str]) -> Option<u64> {
+pub fn syscall_exec(path : &str, args : &[&str]) -> Option<Pid> {
     let (path_ptr, path_len) = str_to_ptr_and_len(path);
     let args_vec = args.iter().map(|arg| Arg { len: arg.len(), ptr: arg.as_ptr() }).collect::<Vec<_>>();
     let args_ptr = args_vec.as_ptr() as u64;
@@ -104,13 +104,18 @@ pub fn syscall_exec(path : &str, args : &[&str]) -> Option<u64> {
     };
     match ret {
         u64::MAX => None,
-        _ => Some(ret),
+        _ => Some(Pid::from_raw(ret)?),
     }
 }
 
-pub fn syscall_wait_pid(pid : u64){
-    unsafe {
-        syscall1(SYSCALL_WAIT_PID, pid); 
+pub fn syscall_wait_pid(pid : Pid) -> Option<()> {
+    let pid = pid.into_raw();
+    let ret = unsafe {
+        syscall1(SYSCALL_WAIT_PID, pid) 
+    };
+    match ret {
+        u64::MAX => None,
+        _ => Some(()),
     }
 }
 

@@ -94,7 +94,7 @@ impl Write for StackStr<'_> {
 }
 
 fn print_segfault_infos<W : Write>(writer : &mut W, current_pid : Pid, error_code: PageFaultErrorCode, accessed_addr : Option<usize>){
-    let _ = write!(writer, "segfault of process {} : ", current_pid.0.get());
+    let _ = write!(writer, "segfault of process {:?} : ", current_pid);
     
     let present = error_code.contains(PageFaultErrorCode::PROTECTION_VIOLATION);
     let error_cause = if error_code.contains(PageFaultErrorCode::CAUSED_BY_WRITE){

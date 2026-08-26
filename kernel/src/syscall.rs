@@ -4,7 +4,7 @@ use alloc::{borrow::ToOwned, slice, str, string::String, vec::Vec};
 use shared_consts::{Arg, CREATE_FILE, DirChild, Fd, READABLE, SHUTDOWN_REBOOT, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_FSTAT, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_GET_RANDOM, SYSCALL_OPEN, SYSCALL_READ, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_WRITE, Stat, StatMode, WRITABLE};
 use x86_64::{VirtAddr, align_up, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::serial_print_allocs_deallocs, elf::load_elf, fs::{FileError, canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read, process_write}, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table, get_page_flags_in, map_page_at_in, translate_addr_in}, power::{reboot, shutdown}, process::{Pid, Process, cleanup_process_complete, destroy_process_because_err}, random::random_bytes, scheduler::{ReadyMode, SCHEDULER, SchedulerState, WaitReason, kill_current_and_schedule, schedule, with_scheduler_no_int}, security::spectre_fence, serial_println, utils::Registers};
+use crate::{allocator::serial_print_allocs_deallocs, elf::load_elf, fs::{FileError, canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read, process_write}, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table, get_page_flags_in, map_page_at_in, translate_addr_in}, power::{reboot, shutdown}, process::{Pid, Process, cleanup_process_complete, destroy_process_because_err}, random::random_bytes, scheduler::{ReadyMode, SchedulerState, WaitReason, kill_current_and_schedule, schedule, with_scheduler_no_int}, security::spectre_fence, serial_println, utils::Registers};
 
 
 const USER_CS: u64 = 0x23;
@@ -110,7 +110,7 @@ impl SyscallRegs {
 fn mark_current_as_user(){
     with_scheduler_no_int(|scheduler|{
         let pid = scheduler.current_process.unwrap();
-        let process = pid.get_process_mut(&mut scheduler.processes);
+        let process = pid.get_process_mut(&mut scheduler.processes).unwrap();
 
         process.state = SchedulerState::Ready(ReadyMode::User);
     })
@@ -284,7 +284,7 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
 
     // TODO : merge this block with_scheduler_no_int with the one next ?
     let canonicalized_path = with_scheduler_no_int(|scheduler|{
-        let current_cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes).cwd_path;
+        let current_cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes)?.cwd_path;
         canonicalize_path(&path, current_cwd)
     })?;
 
@@ -295,12 +295,12 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
 
     let new_proc_pid = with_scheduler_no_int(|scheduler| {
         let current_cwd_path = {
-            let current_proc = scheduler.current_process.unwrap().get_process(&scheduler.processes);
+            let current_proc = scheduler.current_process.unwrap().get_process(&scheduler.processes)?;
             let current_cwd_path = current_proc.cwd_path.clone();
             current_cwd_path
         };
-        let new_proc_pid = Process::empty_process(current_cwd_path, scheduler);
-        let process = new_proc_pid.get_process_mut(&mut scheduler.processes);
+        let new_proc_pid = Process::empty_process(current_cwd_path, scheduler)?;
+        let process = new_proc_pid.get_process_mut(&mut scheduler.processes)?;
 
         let elf = match load_elf(&file_content, process).ok(){  // TODO : in case like this in syscalls, instead of destroying the error and returning a non specific error to syscall, return the error (change abi ? how would it work ? maybe have a ptr, with a certain memory allocated that is the maximum size that can be used as an used for the error, use an enum and sizeof on it ?)
             Some(elf) => elf,
@@ -310,44 +310,56 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
             },
         };
         let entrypoint = elf.ehdr.e_entry as usize;
-        new_proc_pid.get_process_mut(&mut scheduler.processes).init_process(entrypoint, &args_strings);
+        new_proc_pid.get_process_mut(&mut scheduler.processes)?.init_process(entrypoint, &args_strings);
         scheduler.make_runnable(new_proc_pid);
         Some(new_proc_pid)
     })?;
 
     serial_print_allocs_deallocs("after exec");
 
-    Some(new_proc_pid.0.get() as u64)
+    Some(new_proc_pid.into_raw())
 }
 
 fn syscall_wait_pid(regs : &mut SyscallRegs) -> Option<()> {
-    let waited_pid = unsafe { Pid::new_unchecked(regs.get_arg(1) as usize) }?;
+    let waited_pid = regs.get_arg(1);
+    let waited_pid = Pid::from_raw(waited_pid)?;
 
-    serial_println!("waiting for pid {}", waited_pid.0.get());
+    serial_println!("waiting for pid {:?}", waited_pid);
 
     loop {
         let control_flow = with_scheduler_no_int(|scheduler|{
-            if scheduler.processes.len() < waited_pid.0.get() {
+            if scheduler.processes.len() < waited_pid.get_idx().get() as usize {
                 return ControlFlow::Break(None);
             }
             
             let current_pid = scheduler.current_process.unwrap();
 
-            if !current_pid.get_process(&scheduler.processes).children.contains(&waited_pid) {
-                // not a children
-                return ControlFlow::Break(None);
+            {
+                let current_proc = match current_pid.get_process(&scheduler.processes){
+                    Some(proc) => proc,
+                    None => return ControlFlow::Break(None),
+                };
+                if !current_proc.children.contains(&waited_pid) {
+                    // not a children
+                    return ControlFlow::Break(None);
+                }
             }
 
-            if let SchedulerState::Zombie(exit_code) = waited_pid.get_process(&scheduler.processes).state {
+            // check if waited pid is valid (in term of generation)
+            if waited_pid.get_process(&scheduler.processes).is_none(){
+                return ControlFlow::Break(None);
+            };
+
+            if let SchedulerState::Zombie(exit_code) = waited_pid.get_process(&scheduler.processes).unwrap().state {
                 regs.rax = exit_code as u64;
                 scheduler.mark_dead(waited_pid);
-                current_pid.get_process_mut(&mut scheduler.processes).children.retain(|&pid| pid != waited_pid);
-                cleanup_process_complete(waited_pid.get_process(&scheduler.processes));
+                current_pid.get_process_mut(&mut scheduler.processes).unwrap().children.retain(|&pid| pid != waited_pid);
+                cleanup_process_complete(waited_pid.get_process(&scheduler.processes).unwrap());
                 serial_print_allocs_deallocs("after zombie complete cleanup");
                 return ControlFlow::Break(Some(()));
             }
 
-            current_pid.get_process_mut(&mut scheduler.processes).state = SchedulerState::Wait(WaitReason::WaitPid(waited_pid));
+            current_pid.get_process_mut(&mut scheduler.processes).unwrap().state = SchedulerState::Wait(WaitReason::WaitPid(waited_pid));
             ControlFlow::Continue(())
         });
 
@@ -406,7 +418,7 @@ fn syscall_get_cwd(regs : &mut SyscallRegs) -> Option<u64> {
     let mut cwd_buf = alloc::vec![0; cwd_len];
 
     let cwd_len = with_scheduler_no_int(|scheduler|{
-        let cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes).cwd_path;
+        let cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes)?.cwd_path;
         serial_println!("cwd in syscall  : {}", cwd);
         serial_println!("cwd.len() > cwd_len : {} > {}", cwd.len(), cwd_len);
         if cwd.len() > cwd_len {
@@ -437,7 +449,7 @@ fn syscall_get_dir_children(regs : &mut SyscallRegs) -> Option<u64> {
 fn syscall_sbrk(regs : &mut SyscallRegs) -> Option<u64> {
     let increment = regs.get_arg(1); // TODO : make it i64, and handle shrinking
     let (page_table_phys, current_break, new_break) = with_scheduler_no_int(|scheduler|{
-        let current_proc = scheduler.current_process.unwrap().get_process_mut(&mut scheduler.processes);
+        let current_proc = scheduler.current_process.unwrap().get_process_mut(&mut scheduler.processes)?;
         let current_break = current_proc.heap_break.as_u64();
         let new_break = current_break.checked_add(increment)?;
         if new_break > current_proc.heap_max.as_u64() || new_break < current_proc.heap_start.as_u64() {
@@ -493,14 +505,14 @@ fn syscall_change_cwd(regs : &mut SyscallRegs) -> Option<()> {
 
     with_scheduler_no_int(|scheduler|{
         let canonicalized_path = {
-            let current_cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes).cwd_path;
+            let current_cwd = &scheduler.current_process.unwrap().get_process(&scheduler.processes)?.cwd_path;
             canonicalize_path(&path, current_cwd)?.into_owned()
         };
         match file_stat(&canonicalized_path) {
             Ok(Stat { mode: StatMode::Directory }) => {},
             _ => return None,
         }
-        scheduler.current_process.unwrap().get_process_mut(&mut scheduler.processes).cwd_path = canonicalized_path;
+        scheduler.current_process.unwrap().get_process_mut(&mut scheduler.processes)?.cwd_path = canonicalized_path;
         Some(())
     })
 }
