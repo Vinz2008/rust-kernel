@@ -117,6 +117,8 @@ pub struct Arg {
 }
 
 pub const STDOUT_FD : Fd = Fd::new(0, 1);
+pub const STDERR_FD : Fd = Fd::new(1, 1);
+pub const STDIN_FD : Fd = Fd::new(2, 1);
 
 pub const RNG_SEED_SIZE : usize = 32;
 

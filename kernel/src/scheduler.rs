@@ -1,17 +1,23 @@
 use core::{arch::naked_asm, num::NonZero};
 
-use alloc::{boxed::Box, collections::vec_deque::VecDeque, vec::Vec};
+use alloc::{boxed::Box, collections::vec_deque::VecDeque, sync::Arc, vec::Vec};
 use spin::Mutex;
+use lazy_static::lazy_static;
 use x86_64::{instructions::interrupts::{self, without_interrupts}, registers::{control::{Cr3, Cr3Flags}, rflags::RFlags}};
 
 use crate::{allocator::serial_print_allocs_deallocs, gdt::set_tss_privilege_stack, process::{Pid, Process, cleanup_process_mem_soft}, serial_println, syscall::SYSCALL_KERNEL_RSP, utils::Registers};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum WaitReason {
+    WaitPid(Pid),
+    WaitRead,
+}
+
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum SchedulerState {
     Loading,
     Ready(ReadyMode),
-    WaitPid(Pid),
-    WaitKeyboard,
+    Wait(WaitReason),
     Zombie(i32), // finished, but a process is still waiting on its pid
     Dead,
 }
@@ -22,6 +28,37 @@ pub enum ReadyMode {
     User,
 }
 
+
+#[derive(Debug)]
+pub struct WaitQueue {
+    waiters : Mutex<VecDeque<Pid>>, // TODO : add a Mutex (probably after/while adding more small mutexes everywhere)
+}
+
+impl WaitQueue {
+    fn new() -> WaitQueue {
+        WaitQueue { 
+            waiters: Mutex::new(VecDeque::new()) 
+        }
+    }
+
+    fn pop(&self) -> Option<Pid> {
+        self.waiters.lock().pop_front()
+    }
+
+    pub fn add_process(self : &Arc<WaitQueue>, pid : Pid) {
+        self.waiters.lock().push_back(pid);
+        /*WaitHandle { 
+            queue: self.clone(),
+        }*/
+    }
+}
+
+/*#[derive(Debug, Clone)]
+pub struct WaitHandle {
+    queue : Arc<WaitQueue>,
+}*/
+
+
 pub struct Scheduler {
     #[allow(clippy::vec_box)]
     pub processes : Vec<Box<Process>>, // TODO : maybe use a Option for the process to make it none after complete cleanup, to not use invalid state, (should it be Vec<Box<Option<Process>>> or Vec<Option<Box<Process>>> ?)
@@ -30,15 +67,17 @@ pub struct Scheduler {
     pub runnable_processes : VecDeque<Pid>,
     pub current_process : Option<Pid>,
     is_fx_used : bool, // are there used user values in the fx registers that could need to be saved
-    pub processes_waiting_keyboard : VecDeque<Pid>,
+    pub processes_waiting_keyboard : Arc<WaitQueue>,
 }
 
 impl Scheduler {
     pub fn new_char(&mut self){
-        if let Some(pid) = self.processes_waiting_keyboard.pop_front() {
-            if matches!(pid.get_process(&self.processes).state, SchedulerState::WaitKeyboard){
-                self.make_runnable_inner(pid, ReadyMode::Kernel);
-            }
+        serial_println!("processes_waiting_keyboard = {:?}", self.processes_waiting_keyboard);
+        if let Some(pid) = self.processes_waiting_keyboard.pop() {
+            // TODO : make this check a debug assert ? test it
+            debug_assert!(matches!(pid.get_process(&self.processes).state, SchedulerState::Wait(WaitReason::WaitRead)));
+            serial_println!("wake keyboard process {:?}", pid);
+            self.make_runnable_inner(pid, ReadyMode::Kernel);
         }
     }
 
@@ -96,17 +135,20 @@ impl Scheduler {
     }
 }
 
-pub static SCHEDULER : Mutex<Scheduler> = {
-    let scheduler = Scheduler {
-        processes: Vec::new(),
-        dead_processes_count: 0,
-        runnable_processes: VecDeque::new(),
-        processes_waiting_keyboard: VecDeque::new(),
-        current_process: None,
-        is_fx_used : false,
+
+lazy_static! {
+    pub static ref SCHEDULER : Mutex<Scheduler> = {
+        let scheduler = Scheduler {
+            processes: Vec::new(),
+            dead_processes_count: 0,
+            runnable_processes: VecDeque::new(),
+            processes_waiting_keyboard: Arc::new(WaitQueue::new()),
+            current_process: None,
+            is_fx_used : false,
+        };
+        Mutex::new(scheduler)
     };
-    Mutex::new(scheduler)
-};
+}
 
 pub fn start_first_process(pid : Pid) -> ! {
     serial_println!("start first process");
@@ -242,7 +284,7 @@ fn schedule_get_switch_target(scheduler : &mut Scheduler, current_pid : Pid, nex
 
     let current_state = current_pid.get_process(&scheduler.processes).state;
 
-    let current_is_in_kernel = matches!(current_state, SchedulerState::WaitPid(_) | SchedulerState::WaitKeyboard);
+    let current_is_in_kernel = matches!(current_state, SchedulerState::Wait(_));
 
     match next_state {
         SchedulerState::Ready(ReadyMode::User) => {
@@ -369,7 +411,7 @@ pub fn kill_current_and_schedule(exit_code : i32) -> ! {
 
         if let Some(parent_pid) = parent_pid {
             let parent = parent_pid.get_process_mut(&mut scheduler.processes);
-            if parent.state == SchedulerState::WaitPid(current_pid) {
+            if parent.state == SchedulerState::Wait(WaitReason::WaitPid(current_pid)) {
                 //parent.state = SchedulerState::Ready(ReadyMode::Kernel);
                 scheduler.make_runnable_kernel(parent_pid);
             }

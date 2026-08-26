@@ -2,7 +2,7 @@ use core::{hint::unreachable_unchecked, mem::MaybeUninit};
 
 use alloc::vec::Vec;
 use arrayvec::ArrayString;
-use shared_consts::{Arg, DirChild, Fd, PATH_MAX, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_GET_RANDOM, SYSCALL_OPEN, SYSCALL_READ, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_WRITE, Stat};
+use shared_consts::{Arg, DirChild, Fd, PATH_MAX, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_GET_RANDOM, SYSCALL_OPEN, SYSCALL_READ, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_WRITE, Stat};
 
 pub unsafe fn syscall0(syscall_nb : u64) -> u64 {
     let ret : u64;
@@ -108,12 +108,12 @@ pub fn syscall_exec(path : &str, args : &[&str]) -> Option<u64> {
     }
 }
 
-pub fn syscall_get_char() -> char {
+/*pub fn syscall_get_char() -> char {
     unsafe {
         let c_u32 = syscall0(SYSCALL_GET_CHAR).try_into().unwrap();
         char::from_u32_unchecked(c_u32) 
     }
-}
+}*/
 
 pub fn syscall_wait_pid(pid : u64){
     unsafe {

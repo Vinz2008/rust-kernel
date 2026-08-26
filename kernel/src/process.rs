@@ -249,7 +249,9 @@ pub fn destroy_process_because_err(scheduler : &mut Scheduler, new_proc_pid : Pi
 fn init_fd_list() -> Result<Vec<FdSlot>, FileError> {
     // TODO : should I cache the inode instead of searching the path ? could make it more performant, + would prevent a security risk in the future by changing the root mount ?
     let v = alloc::vec![
-        FdSlot::new(OpenedFile::new("/dev/stdout", false, true, false)?)
+        FdSlot::new(OpenedFile::new("/dev/stdout", false, true, false)?),
+        FdSlot::new(OpenedFile::new("/dev/stderr", false, true, false)?),
+        FdSlot::new(OpenedFile::new("/dev/stdin", true, false, false)?)
     ];
 
     Ok(v)

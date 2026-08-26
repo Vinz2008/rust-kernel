@@ -2,9 +2,9 @@ use core::{arch::{asm, naked_asm}, ops::{ControlFlow, Deref, DerefMut}, ptr};
 
 use alloc::{borrow::ToOwned, slice, str, string::String, vec::Vec};
 use shared_consts::{Arg, CREATE_FILE, DirChild, Fd, READABLE, SHUTDOWN_REBOOT, SYSCALL_CHANGE_CWD, SYSCALL_CLOSE, SYSCALL_EXEC, SYSCALL_EXIT, SYSCALL_FSTAT, SYSCALL_GET_CHAR, SYSCALL_GET_CWD, SYSCALL_GET_DIR_CHILDREN, SYSCALL_GET_RANDOM, SYSCALL_OPEN, SYSCALL_READ, SYSCALL_SBRK, SYSCALL_SHUTDOWN, SYSCALL_STAT, SYSCALL_WAIT_PID, SYSCALL_WRITE, Stat, StatMode, WRITABLE};
-use x86_64::{VirtAddr, align_up, instructions::interrupts, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
+use x86_64::{VirtAddr, align_up, structures::paging::{OffsetPageTable, Page, PageTableFlags, Size4KiB, mapper::MapToError}};
 
-use crate::{allocator::serial_print_allocs_deallocs, elf::load_elf, fs::{canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read, process_write}, interrupts::KEYBOARD_RINGBUF, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table, get_page_flags_in, map_page_at_in, translate_addr_in}, power::{reboot, shutdown}, process::{Pid, Process, cleanup_process_complete, destroy_process_because_err}, random::random_bytes, scheduler::{ReadyMode, SCHEDULER, SchedulerState, kill_current_and_schedule, schedule, with_scheduler_no_int}, security::spectre_fence, serial_println, utils::Registers};
+use crate::{allocator::serial_print_allocs_deallocs, elf::load_elf, fs::{FileError, canonicalize_path, file_stat, get_inode, process_close_file, process_fstat, process_get_dir_children, process_open_file, process_read, process_write}, paging::{PHYSICAL_MEMORY_OFFSET, active_level_4_table, get_page_flags_in, map_page_at_in, translate_addr_in}, power::{reboot, shutdown}, process::{Pid, Process, cleanup_process_complete, destroy_process_because_err}, random::random_bytes, scheduler::{ReadyMode, SCHEDULER, SchedulerState, WaitReason, kill_current_and_schedule, schedule, with_scheduler_no_int}, security::spectre_fence, serial_println, utils::Registers};
 
 
 const USER_CS: u64 = 0x23;
@@ -124,7 +124,7 @@ fn syscall_interrupt_handler(regs : &mut SyscallRegs){
     let ret = match sycall_nb {
         SYSCALL_EXIT => syscall_exit(regs),
         SYSCALL_EXEC => syscall_exec(regs),
-        SYSCALL_GET_CHAR => Some(syscall_get_char(regs)),
+//        SYSCALL_GET_CHAR => Some(syscall_get_char(regs)),
         SYSCALL_WAIT_PID => syscall_wait_pid(regs).map(|_| 0),
         SYSCALL_STAT => syscall_stat(regs).map(|_| 0),
         SYSCALL_OPEN => syscall_open(regs).map(|fd| fd.into_raw()),
@@ -322,7 +322,7 @@ fn syscall_exec(regs : &mut SyscallRegs) -> Option<u64> {
 }
 
 // TODO : remove this and just use read syscall on stdin (after adding read and stdin)
-fn syscall_get_char(regs : &mut SyscallRegs) -> u64 {
+/*fn syscall_get_char(regs : &mut SyscallRegs) -> u64 {
     loop {
         let control_flow = interrupts::without_interrupts(|| {
             serial_println!("get_char: trying pop");
@@ -335,8 +335,8 @@ fn syscall_get_char(regs : &mut SyscallRegs) -> u64 {
                 let mut scheduler_lock = SCHEDULER.lock();
                 let current_pid = scheduler_lock.current_process.unwrap();
                 serial_println!("get_char: current pid {:?}", current_pid);
-                current_pid.get_process_mut(&mut scheduler_lock.processes).state = SchedulerState::WaitKeyboard;
-                scheduler_lock.processes_waiting_keyboard.push_back(current_pid);
+                current_pid.get_process_mut(&mut scheduler_lock.processes).state = SchedulerState::Wait(WaitReason::WaitKeyboard);
+                scheduler_lock.processes_waiting_keyboard.add_process(current_pid);
             }
 
             
@@ -353,7 +353,7 @@ fn syscall_get_char(regs : &mut SyscallRegs) -> u64 {
         
         serial_println!("get_char: resumed after schedule");
     }
-}
+}*/
 
 fn syscall_wait_pid(regs : &mut SyscallRegs) -> Option<()> {
     let waited_pid = unsafe { Pid::new_unchecked(regs.get_arg(1) as usize) }?;
@@ -382,7 +382,7 @@ fn syscall_wait_pid(regs : &mut SyscallRegs) -> Option<()> {
                 return ControlFlow::Break(Some(()));
             }
 
-            current_pid.get_process_mut(&mut scheduler.processes).state = SchedulerState::WaitPid(waited_pid);
+            current_pid.get_process_mut(&mut scheduler.processes).state = SchedulerState::Wait(WaitReason::WaitPid(waited_pid));
             ControlFlow::Continue(())
         });
 
@@ -560,16 +560,37 @@ fn syscall_fstat(regs : &mut SyscallRegs) -> Option<()>{
 
 // TODO : make the fs async first (and then add synchronous wrappers in userspace)
 
+// TODO : return in the trait for devices (then I will use this for traits for any file) an enum with either the count, or pending (with a wait handle ?), would help transitionning to async
+// helper function for syscall_read
+fn read_retry(fd : Fd, buf : &mut [u8], regs : &mut SyscallRegs) -> Result<usize, FileError> {
+    loop {
+        let read = process_read(fd, buf);
+        if let Err(FileError::NoDataYet) = read {
+            schedule(regs);
+            continue;
+        } 
+        return read;
+    }
+}
+
 fn syscall_read(regs : &mut SyscallRegs) -> Option<u64> {
     let fd = regs.get_arg(1);
     let buf = regs.get_arg(2) as *mut u8;
     let buf_size = regs.get_arg(3) as usize;
 
     let fd = Fd::from_raw(fd);
+
+    serial_println!(
+        "syscall_read entered: fd={:?}, ptr={:#x}, len={}",
+        fd,
+        buf as usize,
+        buf_size,
+    );
+
     let user_buf = UserBuf::new(buf, buf_size)?;
     let mut buf = alloc::vec![0; buf_size];
 
-    let read = process_read(fd, &mut buf).ok()? as u64;
+    let read = read_retry(fd, &mut buf, regs).ok()? as u64;    
     
     copy_buf_to_user(user_buf, &buf);
 

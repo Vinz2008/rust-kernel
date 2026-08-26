@@ -149,11 +149,16 @@ impl Writer {
         }
     }
 
+    fn reset_line(&mut self){
+        self.column_pos = 0;
+    }
+
     pub fn write_ansi_byte(&mut self, byte: u8) {
         match self.ansi_state {
             AnsiState::Normal => {
                 match byte {
                     b'\n' => self.new_line(),
+                    b'\r' => self.reset_line(),
                     BACKSPACE_BYTE => self.delete_char(),
                     0x20..=0x7e => self.write_byte(byte),
                     0x1B => {

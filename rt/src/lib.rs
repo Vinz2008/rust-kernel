@@ -20,6 +20,7 @@ mod stack_chk;
 mod allocator;
 pub mod syscall;
 pub mod print;
+pub mod input;
 pub mod fs;
 pub mod random;
 pub mod power;

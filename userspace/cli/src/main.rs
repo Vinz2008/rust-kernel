@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use rt::{self as _, Args, alloc::{string::String, vec}, print, println, shared_consts::BACKSPACE, syscall::{syscall_change_cwd, syscall_exec, syscall_get_char, syscall_get_cwd, syscall_stat, syscall_wait_pid}};
+use rt::{self as _, Args, alloc::{string::String, vec}, input::Reader, print, println, shared_consts::BACKSPACE, syscall::{syscall_change_cwd, syscall_exec, syscall_get_cwd, syscall_stat, syscall_wait_pid}};
 
 // TODO : add a separate command for clear (use a separate exe ?), just prints a code to be handled by the cli driver
 
@@ -71,7 +71,7 @@ pub extern "Rust" fn main(_args : Args<'_>) -> i32 {
     
 
     loop {
-        let c = syscall_get_char();
+        let c = Reader::read_char();
         match c {
             '\n' => {
                 //println!("\nentered : {}", &cli);

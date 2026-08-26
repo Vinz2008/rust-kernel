@@ -3,8 +3,9 @@ use core::{cmp, sync::atomic::{AtomicU64, Ordering}};
 use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec::{Vec}};
 use shared_consts::{DIRENT_DEVICE, DIRENT_DIR, DIRENT_FILE, DirChild, Fd, PATH_NAME_MAX, Stat, StatMode};
 use spin::mutex::Mutex;
+use x86_64::instructions::interrupts;
 
-use crate::{device::{DeviceOps, Stdout}, initrd::{INITRD_BYTES, TarInitrd}, process::{FdSlot, OpenedFile}, scheduler::with_scheduler_no_int, serial_println};
+use crate::{device::{DeviceOps, Stderr, Stdin, Stdout}, initrd::{INITRD_BYTES, TarInitrd}, process::{FdSlot, OpenedFile}, scheduler::{with_scheduler_no_int}, serial_println};
 use lazy_static::lazy_static;
 
 // TODO : file permissions (first need users, maybe root/admin user ? search about it)
@@ -81,10 +82,13 @@ pub fn process_read(fd : Fd, buf : &mut [u8]) -> Result<usize, FileError> {
     if !opened_file.readable {
         return Err(FileError::NotReadableFile);
     }
-    let mut offset_lock = opened_file.offset.lock();
-    let read = opened_file.inode.read_at(*offset_lock, buf)?;
-    *offset_lock += read;
-    Ok(read)
+    interrupts::without_interrupts(||{
+        let mut offset_lock = opened_file.offset.lock();
+        let read = opened_file.inode.read_at(*offset_lock, buf)?;
+        *offset_lock += read;
+        Ok(read)
+    })
+    
 }
 
 pub fn process_write(fd : Fd, buf : &[u8]) -> Result<usize, FileError> {
@@ -198,7 +202,6 @@ pub enum InodeKind {
     }
 }
 
-
 #[derive(Debug)]
 pub enum FileError {
     DirPathNotFound {
@@ -225,6 +228,7 @@ pub enum FileError {
     NotReadableFile,
     NotWritableFile,
     FdWrongGen,
+    NoDataYet, // used for blocking when trying to read (TODO : probably remove it after adding async fs, would move the waiting handle to the async api)
 }
 
 fn fix_error_with_path<T>(res : Result<T, FileError>, path : Box<str>) -> Result<T, FileError>{
@@ -386,6 +390,7 @@ impl Inode {
             _ => return Err(FileError::FileExpected { path: Box::default() }), // TODO : put Inode instead ?
         };
         let mut content = alloc::vec![0; size];
+        // TODO : also maybe schedule if no data yet in the read ? should it even happen ?
         let read_amount = self.read_at(0, &mut content)?; // TODO : check wrote ? or retry if not everything read ?
         Ok(Cow::Owned(content))
     }
@@ -534,6 +539,8 @@ fn fs_create_root_node(tar_initrd : TarInitrd<'static>) -> Arc<Inode> {
 
     add_inode_to_vfs_tree(root_node.clone(), "/dev", Inode::new_dir(), false).unwrap();
     add_inode_to_vfs_tree(root_node.clone(), "/dev/stdout", Inode::new_device(&Stdout), false).unwrap();
-    
+    add_inode_to_vfs_tree(root_node.clone(), "/dev/stderr", Inode::new_device(&Stderr), false).unwrap();
+    add_inode_to_vfs_tree(root_node.clone(), "/dev/stdin", Inode::new_device(&Stdin), false).unwrap();
+
     root_node
 }
