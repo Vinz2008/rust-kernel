@@ -37,58 +37,48 @@ Returns:
 Description:
 Creates a process, launch it and return the pid.
 
-## get_char - syscall 2
-
-uint64_t get_char()
-
-Returns:  
-    key pressed
-
-Description:
-Returns the key pressed as a uint32_t unicode char casted to uint64_t
-
-## wait_pid - syscall 3
+## wait_pid - syscall 2
 
 TODO
 
-## stat - syscall 4
+## stat - syscall 3
 
 TODO
 
-## open - syscall 5
+## open - syscall 4
 
 TODO
 
-## close - syscall 6
+## close - syscall 5
 
 TODO
 
-## get_cwd - syscall 7
+## get_cwd - syscall 6
 
 TODO
 
-## get_dir_children - syscall 8
+## get_dir_children - syscall 7
 
 TODO
 
-## sbrk - syscall 9
+## sbrk - syscall 8
 
 TODO
 
-## shutdown - syscall 10
+## shutdown - syscall 9
 
 TODO
 
-## change_cwd - syscall 11
+## change_cwd - syscall 10
 
 TODO
 
-## fstat - syscall 12
+## fstat - syscall 11
 
 TODO
 
-## read - syscall 13
+## read - syscall 12
 
 TODO
 
-## write - syscall 14
+## write - syscall 13

@@ -250,7 +250,7 @@ lazy_static! {
 
 const DELETE: char = '\u{007f}';
 
-pub static KEYBOARD_RINGBUF : Mutex<RingBuf<char, 512>> = Mutex::new(RingBuf::new());
+pub static KEYBOARD_RINGBUF : Mutex<RingBuf<u8, 512>> = Mutex::new(RingBuf::new());
 
 static CTRL_DOWN: AtomicBool = AtomicBool::new(false);
 
@@ -270,10 +270,18 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
                     if c == 'c' && CTRL_DOWN.load(Ordering::Relaxed) {
                         // TODO : handle the foreground process in the case (add the concept of foreground process, which is a global pid that is stopped on ctrl c, so set the new process as the foreground process, then after it exiting, set as the shell process as the foreground process, but after adding signals, add a SIGINT handler to not kill the shell when doing ctrl c)
                     }
-                    KEYBOARD_RINGBUF.lock().push(c);
+                    let mut buf = [0; char::MAX_LEN_UTF8];
+                    let encoded = c.encode_utf8(&mut buf);
+                    {
+                        let mut ringbuf = KEYBOARD_RINGBUF.lock();
+                        for &b in encoded.as_bytes(){
+                            ringbuf.push(b);
+                        }
+                    }
+                    
+                    
                     serial_println!("keyboard: waking waiter");
                     SCHEDULER.lock().new_char();
-                    //print!("{}", c);
                 },
                 DecodedKey::RawKey(key) => {
                     match key {

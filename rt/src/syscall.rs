@@ -108,13 +108,6 @@ pub fn syscall_exec(path : &str, args : &[&str]) -> Option<u64> {
     }
 }
 
-/*pub fn syscall_get_char() -> char {
-    unsafe {
-        let c_u32 = syscall0(SYSCALL_GET_CHAR).try_into().unwrap();
-        char::from_u32_unchecked(c_u32) 
-    }
-}*/
-
 pub fn syscall_wait_pid(pid : u64){
     unsafe {
         syscall1(SYSCALL_WAIT_PID, pid); 

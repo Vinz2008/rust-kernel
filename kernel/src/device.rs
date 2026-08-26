@@ -57,23 +57,16 @@ impl DeviceOps for Stdin {
                 return Err(FileError::NoDataYet);
             }
             let mut off = 0;
-            for _ in 0..count {
-                let c= keyboard_ringbuf_lock.pop().unwrap();
-                if off >= buffer.len(){
-                    break;
-                }
-                let mut char_buf = [0; char::MAX_LEN_UTF8];
-                let char_str = c.encode_utf8(&mut char_buf);
-                for &c in char_str.as_bytes() {
-                    if off >= buffer.len(){
-                        break;
-                    }
-                    buffer[off] = c;
-                    off += 1;
-                }
+            while off < buffer.len() {
+                let c = match keyboard_ringbuf_lock.pop(){
+                    Some(c) => c,
+                    None => break,
+                };
+                buffer[off] = c;
+                off += 1;
             }
             
-            Ok(count)
+            Ok(off)
         })
         
     }
