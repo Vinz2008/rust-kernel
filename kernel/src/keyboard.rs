@@ -4,7 +4,7 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 use x86_64::{instructions::port::Port, structures::idt::InterruptStackFrame};
 
-use crate::{interrupts::end_of_interrupt, ringbuf::RingBuf, scheduler::SCHEDULER, serial_println, vga::{CursorMove, WRITER}};
+use crate::{interrupts::end_of_interrupt, ringbuf::RingBuf, scheduler::SCHEDULER, serial_println};
 
 // TODO : make the layout dynamic (use AnyLayout enum ?)
 lazy_static! {
@@ -12,7 +12,6 @@ lazy_static! {
         Mutex::new(PS2Keyboard::new(ScancodeSet1::new(), layouts::Azerty, HandleControl::Ignore));
 }
 
-// TODO : increase size to 1024 ?)
 pub static KEYBOARD_RINGBUF : Mutex<RingBuf<u8, 512>> = Mutex::new(RingBuf::new());
 
 static CTRL_DOWN: AtomicBool = AtomicBool::new(false);

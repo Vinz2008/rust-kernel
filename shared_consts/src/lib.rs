@@ -151,7 +151,7 @@ impl Pid {
         let idx = NonZero::new(raw as u32)?;
         Some(Pid {
             generation,
-            idx: idx,
+            idx,
         })
     }
 

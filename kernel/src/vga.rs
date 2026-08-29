@@ -185,7 +185,7 @@ impl Writer {
                     return;
                 }
                 
-                if 0x40 <= byte && byte <= 0x7e { 
+                if (0x40..=0x7e).contains(&byte) { 
                     // is final byte, so csi finished
                     self.execute_escape_code();
                     self.ansi_state = AnsiState::Normal;

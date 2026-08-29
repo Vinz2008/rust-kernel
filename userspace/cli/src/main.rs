@@ -99,7 +99,14 @@ fn handle_escape(state : &mut CliState){
             // arrow down (TODO)
         }
         b"A" => {
-            // arrow up (TODO)
+            // arrow up
+            // TODO : multiple level of history
+            let last_cli = state.last_cli.take();
+            if let Some(last_cli) = last_cli {
+                state.cli_line = last_cli;
+                state.cursor = state.cli_line.len();
+                redraw_cli(state);
+            }
         }
         _ => {}
     }
