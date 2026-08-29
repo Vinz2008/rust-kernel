@@ -3,6 +3,7 @@ use core::arch::asm;
 use core::panic::PanicInfo;
 use core::mem;
 use arrayvec::ArrayVec;
+use elf::{ElfBytes, endian::LittleEndian, segment::ProgramHeader, file::Class, abi::{ET_EXEC, EM_X86_64}};
 use x86_64::instructions::tlb;
 use x86_64::structures::paging::PageSize;
 use x86_64::structures::paging::{
@@ -44,7 +45,7 @@ pub fn bootloader_main(
     rsdp_addr : Option<u64>,
 ) -> ! {
     use crate::bootinfo::MemoryRegionType;
-    use xmas_elf::program::{ProgramHeader, ProgramHeader64};
+    //use xmas_elf::program::{ProgramHeader, ProgramHeader64};
 
     printer::Printer.clear_screen();
 
@@ -56,23 +57,25 @@ pub fn bootloader_main(
 
     // Extract required information from the ELF file.
     // TODO : not use the ArrayVec to reduce stack usage ?
-    //let mut preallocated_space = alloc_stack!([ProgramHeader64; 32]);
-    //let mut segments = FixedVec::new(&mut preallocated_space);
-    let mut segments = ArrayVec::<ProgramHeader64, SEGMENTS_SIZE>::new();
+    let mut segments = ArrayVec::<ProgramHeader, SEGMENTS_SIZE>::new();
     let entry_point;
     {
-        let elf_file = xmas_elf::ElfFile::new(kernel).unwrap();
-        xmas_elf::header::sanity_check(&elf_file).unwrap();
+        //let elf_file = xmas_elf::ElfFile::new(kernel).unwrap();
+        let elf_file = ElfBytes::<LittleEndian>::minimal_parse(kernel).unwrap();
+        //xmas_elf::header::sanity_check(&elf_file).unwrap();
 
-        entry_point = elf_file.header.pt2.entry_point();
+        assert_eq!(elf_file.ehdr.class, Class::ELF64, "does not support 32-bit ELF files",);
+        assert_eq!(elf_file.ehdr.e_machine, EM_X86_64, "kernel ELF is not x86_64");
+        assert_eq!(elf_file.ehdr.e_type, ET_EXEC, "kernel ELF is not ET_EXEC");
+        
+        //entry_point = elf_file.header.pt2.entry_point();
 
-        for program_header in elf_file.program_iter() {
-            match program_header {
-                ProgramHeader::Ph64(header) => segments
-                    .try_push(*header)
-                    .expect("does not support more than 32 program segments"),
-                ProgramHeader::Ph32(_) => panic!("does not support 32 bit elf files"),
-            }
+        entry_point = elf_file.ehdr.e_entry;
+
+        let program_headers = elf_file.segments().expect("kernel ELF has no program header table");
+
+        for program_header in program_headers.iter() {
+            segments.try_push(program_header).expect("does not support more than 32 program segments");
         }
     }
 
@@ -249,24 +252,6 @@ pub fn bootloader_main(
     enable_write_protect_bit();
 
     enable_global_bit();
-
-        use x86_64::structures::paging::Translate;
-
-let test_virt = VirtAddr::new(
-    physical_memory_offset
-        + p4_physical.as_u64()
-        + 0x900
-);
-
-let translated = rec_page_table.translate_addr(test_virt);
-
-assert_eq!(
-    translated,
-    Some(p4_physical + 0x900 as u64),
-    "physmap does not map current P4: virt={:?}, translated={:?}",
-    test_virt,
-    translated,
-);
 
     if cfg!(not(feature = "recursive_page_table")) {
         // unmap recursive entry

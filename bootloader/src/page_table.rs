@@ -2,12 +2,12 @@ use crate::frame_allocator::FrameAllocator;
 use crate::bootinfo::{MemoryRegionType, TlsTemplate};
 use crate::common_boot::SEGMENTS_SIZE;
 use arrayvec::ArrayVec;
+use elf::segment::ProgramHeader;
 use x86_64::structures::paging::mapper::{MapToError, MapperFlush};
 use x86_64::structures::paging::{
     self, Mapper, Page, PageSize, PageTableFlags, PhysFrame, RecursivePageTable, Size4KiB,
 };
 use x86_64::VirtAddr;
-use xmas_elf::program::{self, ProgramHeader64};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MemoryInfo {
@@ -35,7 +35,7 @@ pub(crate) fn map_kernel(
     kernel : &[u8],
     stack_start: Page,
     stack_size: u64,
-    segments: &ArrayVec<ProgramHeader64, SEGMENTS_SIZE>,
+    segments: &ArrayVec<ProgramHeader, SEGMENTS_SIZE>,
     page_table: &mut RecursivePageTable,
     frame_allocator: &mut FrameAllocator,
 ) -> Result<MemoryInfo, MapKernelError> {
@@ -69,26 +69,24 @@ pub(crate) fn map_kernel(
     })
 }
 
-// TODO : use elf instead of xmas-elf ?
 pub(crate) fn map_segment(
-    segment: &ProgramHeader64,
+    segment: &ProgramHeader,
     kernel : &[u8],
     page_table: &mut RecursivePageTable,
     frame_allocator: &mut FrameAllocator,
 ) -> Result<Option<TlsTemplate>, MapToError<Size4KiB>> {
-    let typ = segment.get_type().unwrap();
-    match typ {
-        program::Type::Load => {
-            let mem_size = segment.mem_size;
-            let file_size = segment.file_size;
-            let file_offset = segment.offset;
+    match segment.p_type {
+        elf::abi::PT_LOAD => {
+            let mem_size = segment.p_memsz;
+            let file_size = segment.p_filesz;
+            let file_offset = segment.p_offset;
             if mem_size == 0 {
                 return Ok(None);
             }
 
             assert!(file_size <= mem_size, "ELF PT_LOAD has file_size > mem_size");
 
-            let virt_start_addr = VirtAddr::new(segment.virtual_addr);
+            let virt_start_addr = VirtAddr::new(segment.p_vaddr);
 
             let start_page: Page<Size4KiB> = Page::containing_address(virt_start_addr);
 
@@ -127,12 +125,12 @@ pub(crate) fn map_segment(
                 }
             }
 
-            let flags = segment.flags;
+            let flags = segment.p_flags;
             let mut page_table_flags = PageTableFlags::PRESENT | PageTableFlags::GLOBAL;
-            if !flags.is_execute() {
+            if flags & elf::abi::PF_X == 0 {
                 page_table_flags |= PageTableFlags::NO_EXECUTE
             };
-            if flags.is_write() {
+            if flags & elf::abi::PF_W != 0 {
                 page_table_flags |= PageTableFlags::WRITABLE
             };
 
@@ -144,10 +142,10 @@ pub(crate) fn map_segment(
 
             Ok(None)
         }
-        program::Type::Tls => Ok(Some(TlsTemplate {
-            start_addr: segment.virtual_addr,
-            mem_size: segment.mem_size,
-            file_size: segment.file_size,
+        elf::abi::PT_TLS => Ok(Some(TlsTemplate {
+            start_addr: segment.p_vaddr,
+            mem_size: segment.p_memsz,
+            file_size: segment.p_filesz,
         })),
         _ => Ok(None),
     }

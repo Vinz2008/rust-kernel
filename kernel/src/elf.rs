@@ -1,6 +1,6 @@
 use core::{cmp::min, ptr};
 
-use elf::{ElfBytes, ParseError, abi::PF_X, endian::AnyEndian, segment::ProgramHeader};
+use elf::{ElfBytes, ParseError, abi::PF_X, endian::LittleEndian, segment::ProgramHeader};
 use x86_64::{VirtAddr, align_down, structures::paging::{OffsetPageTable, Page, PageSize, PageTable, PageTableFlags, Size4KiB, mapper::MapToError}};
 
 use crate::{paging::{PHYSICAL_MEMORY_OFFSET, get_page_flags_in, map_page_at_in, set_page_flags_in, translate_addr_in}, process::{ElfMemRegion, Process}, serial_println, userspace::map_userspace_stack};
@@ -159,8 +159,8 @@ fn apply_relro(process: &mut Process, addr : u64, size : u64) -> Result<(), ElfE
     Ok(())
 }
 
-pub fn load_elf<'a>(content : &'a [u8], process : &mut Process) -> Result<ElfBytes<'a, AnyEndian>, ElfError> {
-    let file = ElfBytes::<AnyEndian>::minimal_parse(content)?;
+pub fn load_elf<'a>(content : &'a [u8], process : &mut Process) -> Result<ElfBytes<'a, LittleEndian>, ElfError> {
+    let file = ElfBytes::<LittleEndian>::minimal_parse(content)?;
 
     if file.ehdr.e_machine != elf::abi::EM_X86_64 {
         return Err(ElfError::UnsupportedArch);

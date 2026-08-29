@@ -1,5 +1,5 @@
 use shared_consts::RNG_SEED_SIZE;
-use spin::{Mutex, Once};
+use spin::Mutex;
 
 use crate::syscall::syscall_get_random;
 

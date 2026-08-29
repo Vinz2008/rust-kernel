@@ -25,7 +25,6 @@ bench = false
 
 [dependencies]
 cfg-if = "1.0.4"
-xmas-elf = { version = "0.6.2", optional = true }
 x86_64 = { version = "0.15.5", optional = true, default-features = false, features = ["instructions"] }
 usize_conversions = { version = "0.2.0", optional = true }
 bit_field = { version = "0.10.0", optional = true }
@@ -34,6 +33,7 @@ uefi = { version = "0.39", optional = true }
 spin = { version = "0.12.0", optional = true }
 rsdp = { version = "2.0.1", optional = true }
 arrayvec = { version = "0.7.6", default-features = false, optional = true  }
+elf = { version = "0.8.0", default-features = false, features = ["to_str"], optional = true } # TODO : try to remove the to_str feature ?
 
 [dependencies.font8x8]
 version = "0.3.1"
@@ -47,7 +47,7 @@ toml = { version = "0.5.1", optional = true }
 
 [features]
 default = []
-binary = ["xmas-elf", "x86_64", "usize_conversions", "llvm-tools", "toml", "raw-cpuid", "spin", "rsdp", "arrayvec"]
+binary = ["elf", "x86_64", "usize_conversions", "llvm-tools", "toml", "raw-cpuid", "spin", "rsdp", "arrayvec"]
 vga_320x200 = ["font8x8"]
 recursive_page_table = []
 map_physical_memory = []

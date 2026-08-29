@@ -4,7 +4,7 @@ use x86_64::{
     structures::paging::{Page, PageTable, PageTableIndex, PageTableFlags},
     VirtAddr,
 };
-use xmas_elf::program::ProgramHeader64;
+use elf::segment::ProgramHeader;
 use crate::common_boot::SEGMENTS_SIZE;
 
 pub struct UsedLevel4Entries {
@@ -12,7 +12,7 @@ pub struct UsedLevel4Entries {
 }
 
 impl UsedLevel4Entries {
-    pub fn new(segments: &ArrayVec<ProgramHeader64, SEGMENTS_SIZE>, page_table : &PageTable) -> Self {
+    pub fn new(segments: &ArrayVec<ProgramHeader, SEGMENTS_SIZE>, page_table : &PageTable) -> Self {
         let mut used = UsedLevel4Entries {
             entry_state: [false; 512],
         };
@@ -26,9 +26,9 @@ impl UsedLevel4Entries {
         }
 
         for segment in segments {
-            let start_page: Page = Page::containing_address(VirtAddr::new(segment.virtual_addr));
-            let end_page: Page =
-                Page::containing_address(VirtAddr::new(segment.virtual_addr + segment.mem_size));
+            let virtual_addr = VirtAddr::new(segment.p_vaddr);
+            let start_page: Page = Page::containing_address(virtual_addr);
+            let end_page: Page = Page::containing_address(virtual_addr + segment.p_memsz);
 
             for p4_index in u64::from(start_page.p4_index())..=u64::from(end_page.p4_index()) {
                 used.entry_state[p4_index as usize] = true;
