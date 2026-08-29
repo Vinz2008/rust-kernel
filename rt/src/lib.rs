@@ -15,6 +15,8 @@ use shared_consts::{Arg, RNG_SEED_SIZE};
 
 use crate::{stack_chk::__stack_chk_guard, syscall::syscall_exit};
 
+pub use arrayvec;
+
 mod panic;
 mod stack_chk;
 mod allocator;

@@ -112,8 +112,8 @@ pub struct Writer {
     csi_buf : [u8; 16],
     csi_len : usize,
 
-    cursor_row_pos : usize,
-    cursor_col_pos : usize,
+    //cursor_row_pos : usize,
+    //cursor_col_pos : usize,
 }
 
 pub enum CursorMove {
@@ -121,8 +121,6 @@ pub enum CursorMove {
     Right,
 }
 
-
-// TODO : simplify this, for example with the cursor handling, moving the most possible to the userspace
 
 impl Writer {
     fn write_byte(&mut self , byte: u8){
@@ -138,15 +136,17 @@ impl Writer {
             ascii_character: byte,
             color_code,
         });
-        //self.move_cursor(CursorMove::Right);
-        self.sync_cursor_to_print_pos();
+        
+        //self.sync_cursor_to_print_pos();
         self.column_pos += 1;
 
         if self.column_pos >= BUFFER_WIDTH {
             self.new_line();
         } else {
-            self.sync_cursor_to_print_pos();
+            //self.sync_cursor_to_print_pos();
+            self.update_cursor();
         }
+        
     }
 
     fn reset_line(&mut self){
@@ -159,7 +159,7 @@ impl Writer {
                 match byte {
                     b'\n' => self.new_line(),
                     b'\r' => self.reset_line(),
-                    BACKSPACE_BYTE => self.delete_char(),
+                    BACKSPACE_BYTE => self.delete_char(), // TODO : do I need this ?
                     0x20..=0x7e => self.write_byte(byte),
                     0x1B => {
                         self.ansi_state = AnsiState::Escape;
@@ -212,6 +212,9 @@ impl Writer {
     fn execute_escape_code(&mut self){
         match &self.csi_buf[..self.csi_len] {
             b"H" => todo!(), // TODO : cursor home, moves the cursor to row 0, col 0
+            b"D" => self.move_cursor(CursorMove::Left),
+            b"C" => self.move_cursor(CursorMove::Right),
+            b"K" => self.erase_cursor_to_end_of_line(),
             b"2J" => self.clear_screen(),
             b"0m" => self.color_code = DEFAULT_COLOR,
             b"30m" => self.color_code.set_foreground(Color::Black),
@@ -231,13 +234,11 @@ impl Writer {
             self.buffer.shift_lines();
         } else {
             self.row_pos += 1;
-            //self.cursor_row_pos = self.cursor_row_pos + 1;
         }
-        //self.cursor_col_pos = 0;
-        //self.update_cursor();
 
         self.column_pos = 0;
-        self.sync_cursor_to_print_pos();
+        self.update_cursor();
+        //self.sync_cursor_to_print_pos();
     }
 
     fn delete_char(&mut self){
@@ -258,7 +259,14 @@ impl Writer {
         self.move_cursor(CursorMove::Left);
     }
 
-    pub fn get_row(&self) -> usize {
+    fn erase_cursor_to_end_of_line(&mut self){
+        for col in self.column_pos..BUFFER_WIDTH {
+            self.buffer.write_char(self.row_pos, col, EMPTY_CHAR);
+        }
+        self.update_cursor();
+    }
+
+    /*pub fn get_row(&self) -> usize {
         self.row_pos
     }
 
@@ -275,16 +283,16 @@ impl Writer {
             self.column_pos -= 1;
             self.buffer.write_char(self.row_pos, self.column_pos, EMPTY_CHAR);
         }
-    }
+    }*/
 
-    fn sync_cursor_to_print_pos(&mut self) {
+    /*fn sync_cursor_to_print_pos(&mut self) {
         self.cursor_row_pos = self.row_pos;
         self.cursor_col_pos = self.column_pos;
         self.update_cursor();
-    }
+    }*/
 
     fn update_cursor(&self){
-        let pos = self.cursor_row_pos * BUFFER_WIDTH + self.cursor_col_pos;
+        let pos = self.row_pos * BUFFER_WIDTH + self.column_pos;
         let mut port1 = Port::<u8>::new(0x3D4);
         let mut port2 = Port::<u8>::new(0x3D5);
         unsafe {
@@ -297,13 +305,13 @@ impl Writer {
     }
 
     fn move_cursor_at(&mut self, row : usize, col : usize){
-        self.cursor_row_pos = row;
-        self.cursor_col_pos = col;
+        self.row_pos = row;
+        self.column_pos = col;
         self.update_cursor();
     }
 
     pub fn move_cursor_by(&mut self, cursor_move : CursorMove, count : usize){
-        let pos = self.cursor_row_pos * BUFFER_WIDTH + self.cursor_col_pos;
+        let pos = self.row_pos * BUFFER_WIDTH + self.column_pos;
         let max_pos = BUFFER_HEIGHT * BUFFER_WIDTH - 1;
         let new_pos = match cursor_move {
             CursorMove::Right => pos.saturating_add(count).min(max_pos),
@@ -322,7 +330,8 @@ impl Writer {
         self.buffer.clear();
         self.column_pos = 0;
         self.row_pos = 0;
-        self.sync_cursor_to_print_pos();
+        self.update_cursor();
+        //self.sync_cursor_to_print_pos();
     }
 }
 
@@ -343,8 +352,8 @@ lazy_static! {
             ansi_state:AnsiState::Normal,
             csi_buf: [0; 16],
             csi_len: 0,
-            cursor_col_pos: 0,
-            cursor_row_pos: 0,
+            //cursor_col_pos: 0,
+            //cursor_row_pos: 0,
         };
         writer.clear_screen();
         Mutex::new(writer)

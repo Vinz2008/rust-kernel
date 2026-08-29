@@ -1,10 +1,8 @@
-use core::{arch::naked_asm, fmt::{self, Write}, sync::atomic::{AtomicBool, AtomicU64, Ordering}};
+use core::{arch::naked_asm, fmt::{self, Write}, sync::atomic::{AtomicU64, Ordering}};
 
-use pc_keyboard::{DecodedKey, HandleControl, KeyCode, KeyState, PS2Keyboard, ScancodeSet1, layouts};
-use spin::Mutex;
-use x86_64::{VirtAddr, instructions::port::Port, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
+use x86_64::{VirtAddr, registers::control::Cr2, structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}};
 use lazy_static::lazy_static;
-use crate::{apic::LOCAL_APIC, ahci::ahci_interrupt_handler, backtrace::Backtrace, gdt, pic::PIC_1_OFFSET, process::Pid, ringbuf::RingBuf, scheduler::{SCHEDULER, kill_current_and_schedule, schedule}, serial::SERIAL1, serial_println, utils::{Registers, hlt_loop}, vga::{CursorMove, WRITER}};
+use crate::{ahci::ahci_interrupt_handler, apic::LOCAL_APIC, backtrace::Backtrace, gdt, keyboard::keyboard_interrupt_handler, pic::PIC_1_OFFSET, process::Pid, scheduler::{SCHEDULER, kill_current_and_schedule, schedule}, serial::SERIAL1, utils::{Registers, hlt_loop}, vga::WRITER};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -240,76 +238,6 @@ fn timer_interrupt_handler(regs : &mut Registers){
     }
 }
 
-
-
-// TODO : make the layout dynamic (use AnyLayout enum ?)
-lazy_static! {
-    static ref KEYBOARD: Mutex<PS2Keyboard<layouts::Azerty, ScancodeSet1>> =
-        Mutex::new(PS2Keyboard::new(ScancodeSet1::new(), layouts::Azerty, HandleControl::Ignore));
-}
-
-const DELETE: char = '\u{007f}';
-
-pub static KEYBOARD_RINGBUF : Mutex<RingBuf<u8, 512>> = Mutex::new(RingBuf::new());
-
-static CTRL_DOWN: AtomicBool = AtomicBool::new(false);
-
-extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    unsafe {
-        core::arch::asm!("clac", options(nostack));
-    }
-    let mut keyboard = KEYBOARD.lock();
-    let mut port = Port::new(0x60);
-    let scancode : u8 = unsafe { port.read() };
-
-    if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
-        if let Some(key) = keyboard.process_keyevent(key_event.clone()) {
-            match key {
-                DecodedKey::Unicode(c) => {
-                    serial_println!("keyboard: pushing {:?}", c);
-                    if c == 'c' && CTRL_DOWN.load(Ordering::Relaxed) {
-                        // TODO : handle the foreground process in the case (add the concept of foreground process, which is a global pid that is stopped on ctrl c, so set the new process as the foreground process, then after it exiting, set as the shell process as the foreground process, but after adding signals, add a SIGINT handler to not kill the shell when doing ctrl c)
-                    }
-                    let mut buf = [0; char::MAX_LEN_UTF8];
-                    let encoded = c.encode_utf8(&mut buf);
-                    {
-                        let mut ringbuf = KEYBOARD_RINGBUF.lock();
-                        for &b in encoded.as_bytes(){
-                            ringbuf.push(b);
-                        }
-                    }
-                    
-                    
-                    serial_println!("keyboard: waking waiter");
-                    SCHEDULER.lock().new_char();
-                },
-                DecodedKey::RawKey(key) => {
-                    match key {
-                        // TODO  shift, ctrl, etc
-                        KeyCode::ArrowLeft => {
-                            //CLI_CONTEXT.lock().cursor.move_cursor(CursorMove::Left);
-                            WRITER.lock().move_cursor(CursorMove::Left);
-                        }
-                        KeyCode::ArrowRight => {
-                            //CLI_CONTEXT.lock().cursor.move_cursor(CursorMove::Right);
-                            WRITER.lock().move_cursor(CursorMove::Right);
-                        },
-                        KeyCode::LShift => {}, // Do nothing, because pc-keyboard already does the shift for the chars
-                        KeyCode::LControl => {
-                            CTRL_DOWN.store(
-                                key_event.state == KeyState::Down,
-                                Ordering::Relaxed,
-                            );
-                        }
-                        _ => serial_println!("{:?}", key),
-                    }
-                },
-            }
-        }
-    }
-
-    end_of_interrupt();
-}
 
 extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStackFrame) {
 }

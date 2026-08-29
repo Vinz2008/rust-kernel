@@ -66,6 +66,7 @@ mod device;
 mod initrd;
 
 mod ringbuf;
+mod keyboard;
 
 mod stack_chk;
 mod security;

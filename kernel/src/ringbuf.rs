@@ -46,6 +46,14 @@ impl<T, const N: usize> RingBuf<T, N>{
     }
 }
 
+impl<T, const N: usize> Extend<T> for RingBuf<T, N> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        for e in iter.into_iter() {
+            self.push(e);
+        }
+    }
+}
+
 impl<T, const N: usize> Drop for RingBuf<T, N> {
     fn drop(&mut self) {
         while self.pop().is_some() {}

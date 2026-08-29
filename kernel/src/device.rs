@@ -1,6 +1,6 @@
 use x86_64::instructions::interrupts;
 
-use crate::{fs::FileError, interrupts::KEYBOARD_RINGBUF, scheduler::{SCHEDULER, SchedulerState, WaitReason}, vga::WRITER};
+use crate::{fs::FileError, keyboard::KEYBOARD_RINGBUF, scheduler::{SCHEDULER, SchedulerState, WaitReason}, vga::WRITER};
 
 pub trait DeviceOps : Sync {
     fn read(&self, offset : usize, buffer : &mut [u8]) -> Result<usize, FileError>;
