@@ -6,10 +6,11 @@ use x86_64::{instructions::port::Port, structures::idt::InterruptStackFrame};
 
 use crate::{interrupts::end_of_interrupt, ringbuf::RingBuf, scheduler::SCHEDULER, serial_println};
 
-// TODO : make the layout dynamic (use AnyLayout enum ?)
+const SCANCODE_SET : ScancodeSet1 = ScancodeSet1::new();
+
 lazy_static! {
-    static ref KEYBOARD: Mutex<PS2Keyboard<layouts::Azerty, ScancodeSet1>> =
-        Mutex::new(PS2Keyboard::new(ScancodeSet1::new(), layouts::Azerty, HandleControl::Ignore));
+    static ref KEYBOARD: Mutex<PS2Keyboard<layouts::AnyLayout, ScancodeSet1>> =
+        Mutex::new(PS2Keyboard::new(SCANCODE_SET, layouts::AnyLayout::Azerty(layouts::Azerty), HandleControl::Ignore));
 }
 
 pub static KEYBOARD_RINGBUF : Mutex<RingBuf<u8, 512>> = Mutex::new(RingBuf::new());
@@ -23,6 +24,7 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
         core::arch::asm!("clac", options(nostack));
     }
     let mut keyboard = KEYBOARD.lock();
+    
     let mut port = Port::new(0x60);
     let scancode : u8 = unsafe { port.read() };
 
@@ -87,4 +89,13 @@ pub extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: Interrupt
     }
 
     end_of_interrupt();
+}
+
+
+// TODO : use it ?
+pub fn switch_layout(new_layout : layouts::AnyLayout){
+    let mut keyboard_lock = KEYBOARD.lock();
+    let handling = keyboard_lock.get_ctrl_handling();
+    let keyboard = PS2Keyboard::new(SCANCODE_SET, new_layout, handling);
+    *keyboard_lock = keyboard; 
 }
