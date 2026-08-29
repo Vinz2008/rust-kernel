@@ -49,6 +49,7 @@ toml = { version = "0.5.1", optional = true }
 default = []
 binary = ["elf", "x86_64", "usize_conversions", "llvm-tools", "toml", "raw-cpuid", "spin", "rsdp", "arrayvec"]
 vga_320x200 = ["font8x8"]
+vesa = ["font8x8"]
 recursive_page_table = []
 map_physical_memory = []
 sse = ["bit_field"]

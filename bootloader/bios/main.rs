@@ -2,6 +2,7 @@
 #![no_main]
 
 use bootloader::{bootinfo::MemoryMap, common_boot::bootloader_main};
+use cfg_if::cfg_if;
 use crate::memory_map::MemoryMapStorage;
 use core::cell::UnsafeCell;
 
@@ -19,10 +20,15 @@ global_asm!(include_str!("e820.s"));
 
 global_asm!(include_str!("stage_3.s"));
 
-#[cfg(feature = "vga_320x200")]
-global_asm!(include_str!("video_mode/vga_320x200.s"));
-#[cfg(not(feature = "vga_320x200"))]
-global_asm!(include_str!("video_mode/vga_text_80x25.s"));
+cfg_if! {
+    if #[cfg(feature = "vga_320x200")] {
+        global_asm!(include_str!("video_mode/vga_320x200.s"));
+    } else if #[cfg(feature = "vesa")]  {
+        global_asm!(include_str!("video_mode/vesa.s"));
+    } else {
+        global_asm!(include_str!("video_mode/vga_text_80x25.s"));
+    }
+}
 
 // Symbols defined in `linker.ld`
 extern "C" {
