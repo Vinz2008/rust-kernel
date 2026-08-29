@@ -77,15 +77,15 @@ config_video_mode:
     cmp ax, 0x004f
     jne .find_mode_loop
 
-    # Mode must be supported.
+    # Mode must be supported
     test word ptr [vbe_mode_info + VBE_MODE_ATTRIBUTES], 0x0001
     jz .find_mode_loop
 
-    # Graphics mode. (TODO  WHAT IS THIS)
+    # Graphics mode (not text mode)
     test word ptr [vbe_mode_info + VBE_MODE_ATTRIBUTES], 0x0010
     jz .find_mode_loop
 
-    # Linear framebuffer available. (TODO  WHAT IS THIS)
+    # Linear framebuffer available
     test word ptr [vbe_mode_info + VBE_MODE_ATTRIBUTES], 0x0080
     jz .find_mode_loop
 
@@ -102,7 +102,7 @@ config_video_mode:
     jne .find_mode_loop
 
     mov bx, word ptr [vbe_current_mode]
-    or bx, 0x4000 # (TODO  WHAT IS THIS)
+    or bx, 0x4000
 
     mov ax, 0x4f02
     int 0x10
