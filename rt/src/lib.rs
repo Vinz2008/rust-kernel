@@ -13,7 +13,7 @@ use alloc::slice;
 pub use shared_consts;
 use shared_consts::{Arg, RNG_SEED_SIZE};
 
-use crate::{stack_chk::__stack_chk_guard, syscall::syscall_exit};
+use crate::{random::init_rng_seed, stack_chk::__stack_chk_guard, syscall::syscall_exit};
 
 pub use arrayvec;
 
@@ -63,6 +63,8 @@ fn start_rt(initial_rsp: *const u8){
         let args = slice::from_raw_parts(argv_ptr, argc);
         (random_seed, args)
     };
+
+    init_rng_seed(random_seed);
 
     // TODO : use the random seed
 
