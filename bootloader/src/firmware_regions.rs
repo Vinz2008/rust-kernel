@@ -18,7 +18,7 @@ pub fn reserve_firmware_boot_regions(frame_allocator : &mut FrameAllocator<'_>, 
 
     // is it identity mapped
     let kernel_start_phys = PhysAddr::new(kernel.as_ptr() as u64);
-    let kernel_size = kernel.len();
+    let kernel_size = kernel.len() as u64;
     let kernel_start_frame = PhysFrame::containing_address(kernel_start_phys);
     let kernel_end_frame = PhysFrame::containing_address(kernel_start_phys + kernel_size - 1u64);
     let kernel_memory_area = PhysFrame::range(kernel_start_frame, kernel_end_frame + 1);

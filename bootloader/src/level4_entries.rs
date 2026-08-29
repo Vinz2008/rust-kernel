@@ -1,17 +1,18 @@
 use core::convert::TryInto;
-use fixedvec::FixedVec;
+use arrayvec::ArrayVec;
 use x86_64::{
     structures::paging::{Page, PageTable, PageTableIndex, PageTableFlags},
     VirtAddr,
 };
 use xmas_elf::program::ProgramHeader64;
+use crate::common_boot::SEGMENTS_SIZE;
 
 pub struct UsedLevel4Entries {
     entry_state: [bool; 512], // whether an entry is in use by the kernel
 }
 
 impl UsedLevel4Entries {
-    pub fn new(segments: &FixedVec<ProgramHeader64>, page_table : &PageTable) -> Self {
+    pub fn new(segments: &ArrayVec<ProgramHeader64, SEGMENTS_SIZE>, page_table : &PageTable) -> Self {
         let mut used = UsedLevel4Entries {
             entry_state: [false; 512],
         };

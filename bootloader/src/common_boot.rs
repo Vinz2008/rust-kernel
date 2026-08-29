@@ -2,7 +2,7 @@ use crate::bootinfo::{BootInfo, FrameRange, MemoryMap};
 use core::arch::asm;
 use core::panic::PanicInfo;
 use core::mem;
-use fixedvec::alloc_stack;
+use arrayvec::ArrayVec;
 use x86_64::instructions::tlb;
 use x86_64::structures::paging::PageSize;
 use x86_64::structures::paging::{
@@ -30,6 +30,8 @@ unsafe fn context_switch(boot_info: VirtAddr, entry_point: VirtAddr, stack_point
     ::core::hint::unreachable_unchecked()
 }
 
+pub const SEGMENTS_SIZE : usize = 32;
+
 // TODO : refactor this interface ?
 pub fn bootloader_main(
     kernel : &'static [u8],
@@ -42,7 +44,6 @@ pub fn bootloader_main(
     rsdp_addr : Option<u64>,
 ) -> ! {
     use crate::bootinfo::MemoryRegionType;
-    use fixedvec::FixedVec;
     use xmas_elf::program::{ProgramHeader, ProgramHeader64};
 
     printer::Printer.clear_screen();
@@ -54,9 +55,10 @@ pub fn bootloader_main(
         .expect("no physical memory regions found");
 
     // Extract required information from the ELF file.
-    // TODO : not use the fixedVec to reduce stack usage ?
-    let mut preallocated_space = alloc_stack!([ProgramHeader64; 32]);
-    let mut segments = FixedVec::new(&mut preallocated_space);
+    // TODO : not use the ArrayVec to reduce stack usage ?
+    //let mut preallocated_space = alloc_stack!([ProgramHeader64; 32]);
+    //let mut segments = FixedVec::new(&mut preallocated_space);
+    let mut segments = ArrayVec::<ProgramHeader64, SEGMENTS_SIZE>::new();
     let entry_point;
     {
         let elf_file = xmas_elf::ElfFile::new(kernel).unwrap();
@@ -67,7 +69,7 @@ pub fn bootloader_main(
         for program_header in elf_file.program_iter() {
             match program_header {
                 ProgramHeader::Ph64(header) => segments
-                    .push(*header)
+                    .try_push(*header)
                     .expect("does not support more than 32 program segments"),
                 ProgramHeader::Ph32(_) => panic!("does not support 32 bit elf files"),
             }

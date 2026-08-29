@@ -26,17 +26,17 @@ bench = false
 [dependencies]
 cfg-if = "1.0.4"
 xmas-elf = { version = "0.6.2", optional = true }
-x86_64 = { version = "0.14.7", optional = true, default-features = false, features = ["instructions", "inline_asm"] }
+x86_64 = { version = "0.15.5", optional = true, default-features = false, features = ["instructions"] }
 usize_conversions = { version = "0.2.0", optional = true }
-fixedvec = { version = "0.2.4", optional = true }
 bit_field = { version = "0.10.0", optional = true }
 raw-cpuid = { version = "11.6.0", optional = true }
 uefi = { version = "0.39", optional = true }
 spin = { version = "0.12.0", optional = true }
 rsdp = { version = "2.0.1", optional = true }
+arrayvec = { version = "0.7.6", default-features = false, optional = true  }
 
 [dependencies.font8x8]
-version = "0.2.4"
+version = "0.3.1"
 default-features = false
 features = ["unicode"]
 optional = true
@@ -47,7 +47,7 @@ toml = { version = "0.5.1", optional = true }
 
 [features]
 default = []
-binary = ["xmas-elf", "x86_64", "usize_conversions", "fixedvec", "llvm-tools", "toml", "raw-cpuid", "spin", "rsdp"]
+binary = ["xmas-elf", "x86_64", "usize_conversions", "llvm-tools", "toml", "raw-cpuid", "spin", "rsdp", "arrayvec"]
 vga_320x200 = ["font8x8"]
 recursive_page_table = []
 map_physical_memory = []

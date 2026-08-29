@@ -1,7 +1,7 @@
 use crate::frame_allocator::FrameAllocator;
-use crate::bootinfo::MemoryRegionType;
-use crate::bootinfo::TlsTemplate;
-use fixedvec::FixedVec;
+use crate::bootinfo::{MemoryRegionType, TlsTemplate};
+use crate::common_boot::SEGMENTS_SIZE;
+use arrayvec::ArrayVec;
 use x86_64::structures::paging::mapper::{MapToError, MapperFlush};
 use x86_64::structures::paging::{
     self, Mapper, Page, PageSize, PageTableFlags, PhysFrame, RecursivePageTable, Size4KiB,
@@ -35,7 +35,7 @@ pub(crate) fn map_kernel(
     kernel : &[u8],
     stack_start: Page,
     stack_size: u64,
-    segments: &FixedVec<ProgramHeader64>,
+    segments: &ArrayVec<ProgramHeader64, SEGMENTS_SIZE>,
     page_table: &mut RecursivePageTable,
     frame_allocator: &mut FrameAllocator,
 ) -> Result<MemoryInfo, MapKernelError> {
