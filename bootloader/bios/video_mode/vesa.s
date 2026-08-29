@@ -97,7 +97,7 @@ config_video_mode:
     cmp byte ptr [vbe_mode_info + VBE_MODE_BPP], 32
     jne .find_mode_loop
 
-    # Direct-color mode. (TODO  WHAT IS THIS)
+    # Direct-color mode
     cmp byte ptr [vbe_mode_info + VBE_MODE_MEMORY_MODEL], 6
     jne .find_mode_loop
 
