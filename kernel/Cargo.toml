@@ -23,7 +23,10 @@ uefi = ["bootloader/uefi"]
 
 [package.metadata.bootimage]
 run-command = ["./scripts/run-qemu.sh", "{}"]
+
 run-args = ["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", "-serial", "stdio", "-enable-kvm", "-cpu", "host", "-machine", "q35", "-m", "512M", "-smp",  "1"]
+# without kvm
+#run-args = ["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", "-serial", "stdio", "-cpu", "max", "-machine", "q35", "-m", "512M", "-smp",  "1"]
 test-args = ["-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", "-serial", "stdio", "-display", "none"]
 test-timeout = 300
 test-success-exit-code = 33
